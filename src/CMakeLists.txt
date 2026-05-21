@@ -52,6 +52,7 @@ qt_add_executable(NotepadNext
 	ZoomEventWatcher.h
 	ThemeResolver.h
 	StylesheetResource.h
+	DarkPalette.h
 	resources.qrc
 	scripts.qrc
 	ApplicationSettings.cpp

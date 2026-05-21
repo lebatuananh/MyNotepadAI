@@ -292,8 +292,10 @@ void TestTerminalSelection::selectionMultiCodepointGlyph()
     const QString out = extractSelectionText(ms, QPoint(0, 0), QPoint(0, 0));
     // Two code points joined into the single output glyph.
     QString expected;
-    expected.append(QChar::fromUcs4(0x41));
-    expected.append(QChar::fromUcs4(0x0301));
+    const char32_t cp0 = 0x41;
+    const char32_t cp1 = 0x0301;
+    expected.append(QString::fromUcs4(&cp0, 1));
+    expected.append(QString::fromUcs4(&cp1, 1));
     QCOMPARE(out, expected);
 }
 

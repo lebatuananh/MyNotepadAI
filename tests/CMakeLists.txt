@@ -43,6 +43,13 @@ target_include_directories(test_stylesheet_resource PRIVATE ${CMAKE_SOURCE_DIR}/
 target_link_libraries(test_stylesheet_resource PRIVATE Qt6::Core Qt6::Test)
 add_test(NAME StylesheetResource COMMAND test_stylesheet_resource)
 
+# --- DarkPalette: pure foreground-lightening transform for dark editor bg.
+#     Header-only, so we only need the test source itself. ---
+qt_add_executable(test_dark_palette test_dark_palette.cpp)
+target_include_directories(test_dark_palette PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_dark_palette PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+add_test(NAME DarkPalette COMMAND test_dark_palette)
+
 # --- TerminalCwdResolver: pure path-resolution logic for the Terminal menu actions ---
 qt_add_executable(test_terminal_cwd_resolver test_terminal_cwd_resolver.cpp)
 target_include_directories(test_terminal_cwd_resolver PRIVATE ${CMAKE_SOURCE_DIR}/src)

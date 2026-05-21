@@ -20,6 +20,7 @@
 
 #include "ApplicationSettings.h"
 
+#include "DarkPalette.h"
 #include "EditorManager.h"
 #include "ScintillaNext.h"
 #include "Scintilla.h"
@@ -336,6 +337,18 @@ void EditorManager::applyThemeToEditor(ScintillaNext *editor, bool dark, bool in
         // background so dark mode is preserved.
         for (int i = 0; i <= STYLE_MAX; ++i) {
             editor->styleSetBack(i, defaultBack);
+        }
+    }
+
+    // Per-language Lua files hard-code foregrounds for a white background.
+    // After the lexer runs, rewrite every per-style foreground through the
+    // pure transform so e.g. dark-green comments and pure-black identifiers
+    // become readable on #1E1E1E. Chrome styles (line number, brace, indent
+    // guide) are re-asserted below so this loop never wins over them.
+    if (dark && !initialSetup) {
+        for (int i = 0; i <= STYLE_MAX; ++i) {
+            const int sciFg = static_cast<int>(editor->styleFore(i));
+            editor->styleSetFore(i, DarkPalette::lightenSciForeground(sciFg));
         }
     }
 

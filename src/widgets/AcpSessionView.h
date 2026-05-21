@@ -169,6 +169,17 @@ private:
     QPointer<AcpPermissionPrompt> m_activePermissionPrompt;
 
     bool m_updatingSelectors = false;
+
+    // Auto-scroll state. The transcript is "stuck to the bottom" when the
+    // user is parked at (or within a few px of) the maximum scroll value.
+    // While stuck, content growth triggers auto-scroll; otherwise we leave
+    // the user where they are and reveal the ↓ jump button. The flag flips
+    // on when the user scrolls back to the bottom themselves, or when they
+    // press Send / the ↓ button. m_programmaticScroll guards against our
+    // own setValue() round-tripping through valueChanged and clobbering the
+    // user-derived flag.
+    bool m_stickToBottom = true;
+    bool m_programmaticScroll = false;
 };
 
 #endif // ACP_SESSION_VIEW_H

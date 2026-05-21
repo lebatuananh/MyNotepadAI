@@ -52,9 +52,10 @@
 
 namespace {
 
-// Treat any scrollbar value within this many pixels of the maximum as "at bottom".
+// Treat any scrollbar value within this many pixels of the maximum as "at
+// bottom". Used both for the user's at-bottom recognition (the flag flips on
+// when they reach this band) and for the programmatic scroll target.
 constexpr int kAtBottomEpsilonPx = 8;
-constexpr int kJumpButtonRevealThresholdPx = 64;
 
 // Custom QPlainTextEdit that submits on Enter (Shift+Enter for newline) and
 // forwards image pastes/drops to the AcpImageAttachmentList.
@@ -188,11 +189,25 @@ void AcpSessionView::buildUi()
     connect(m_jumpToBottom, &QToolButton::clicked, this, &AcpSessionView::onJumpToBottomClicked);
 
     if (auto *vbar = m_scroll->verticalScrollBar()) {
-        connect(vbar, &QScrollBar::valueChanged, this, [this](int) {
+        // User-driven scroll updates the stick-to-bottom flag. Our own
+        // setValue() calls are bracketed by m_programmaticScroll so they
+        // don't flip the flag based on the value we just wrote.
+        connect(vbar, &QScrollBar::valueChanged, this, [this](int v) {
+            if (m_programmaticScroll) return;
+            auto *vb = m_scroll ? m_scroll->verticalScrollBar() : nullptr;
+            if (!vb) return;
+            m_stickToBottom = (v >= vb->maximum() - kAtBottomEpsilonPx);
             updateJumpButtonVisibility();
         });
+        // Content growth (new bubble, streamed chunk reflow) changes the
+        // range. When stuck, follow the new bottom; otherwise leave the
+        // viewport where the user parked it.
         connect(vbar, &QScrollBar::rangeChanged, this, [this](int, int) {
-            updateJumpButtonVisibility();
+            if (m_stickToBottom) {
+                scrollToBottomDeferred();
+            } else {
+                updateJumpButtonVisibility();
+            }
         });
     }
 
@@ -441,6 +456,9 @@ void AcpSessionView::rebind(AcpSessionModel *model, AcpConnection *connection)
     if (m_usageIndicator) {
         m_usageIndicator->setUsage(std::nullopt);
     }
+
+    // Fresh session → reset the auto-scroll flag to its default.
+    m_stickToBottom = true;
 
     // If the debug-log popup is open, repoint its content at the new
     // connection's log so the user sees the freshly-restarted session.
@@ -709,6 +727,9 @@ void AcpSessionView::onSendClicked()
 
     m_input->clear();
     m_currentGroupCards.clear();
+    // Sending is a fresh focus on the conversation — re-engage the stream
+    // even if the user had scrolled up earlier.
+    m_stickToBottom = true;
     scrollToBottomDeferred();
 }
 
@@ -772,9 +793,15 @@ void AcpSessionView::onEffortComboChanged(int index)
 void AcpSessionView::onJumpToBottomClicked()
 {
     if (!m_scroll) return;
+    // Explicit user intent to re-engage the stream → re-stick.
+    m_stickToBottom = true;
     auto *vbar = m_scroll->verticalScrollBar();
-    if (vbar) vbar->setValue(vbar->maximum());
-    if (m_jumpToBottom) m_jumpToBottom->hide();
+    if (vbar) {
+        m_programmaticScroll = true;
+        vbar->setValue(vbar->maximum());
+        m_programmaticScroll = false;
+    }
+    updateJumpButtonVisibility();
 }
 
 void AcpSessionView::onShowDebugLogClicked()
@@ -865,27 +892,29 @@ void AcpSessionView::scrollToBottomDeferred()
     if (!m_scroll) return;
     auto *vbar = m_scroll->verticalScrollBar();
     if (!vbar) return;
-    const bool atBottom = vbar->value() >= vbar->maximum() - kAtBottomEpsilonPx;
-    if (atBottom) {
-        QPointer<AcpSessionView> guard(this);
-        QTimer::singleShot(0, this, [guard]() {
-            if (!guard) return;
-            if (auto *vb = guard->m_scroll ? guard->m_scroll->verticalScrollBar() : nullptr) {
-                vb->setValue(vb->maximum());
-            }
-        });
+    if (!m_stickToBottom) {
+        updateJumpButtonVisibility();
+        return;
     }
+    QPointer<AcpSessionView> guard(this);
+    QTimer::singleShot(0, this, [guard]() {
+        if (!guard) return;
+        auto *vb = guard->m_scroll ? guard->m_scroll->verticalScrollBar() : nullptr;
+        if (!vb) return;
+        guard->m_programmaticScroll = true;
+        vb->setValue(vb->maximum());
+        guard->m_programmaticScroll = false;
+    });
     updateJumpButtonVisibility();
 }
 
 void AcpSessionView::updateJumpButtonVisibility()
 {
     if (!m_scroll || !m_jumpToBottom) return;
-    auto *vbar = m_scroll->verticalScrollBar();
-    if (!vbar) return;
-    const int distance = vbar->maximum() - vbar->value();
-    const bool show = distance > kJumpButtonRevealThresholdPx;
-    if (show) {
+    // The button mirrors the inverse of the stick flag: visible exactly when
+    // the user has scrolled away from the bottom, hidden when they're parked
+    // there (or auto-scrolling alongside the stream).
+    if (!m_stickToBottom) {
         positionJumpButton();
         m_jumpToBottom->show();
         m_jumpToBottom->raise();

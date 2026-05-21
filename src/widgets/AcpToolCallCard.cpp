@@ -151,8 +151,23 @@ void AcpToolCallCard::refitBodyHeight()
     if (w <= 0) return;
     QTextDocument *doc = m_body->document();
     doc->setTextWidth(w);
-    const int h = static_cast<int>(std::ceil(doc->size().height()));
-    m_body->setFixedHeight(qMax(0, h));
+    const int bodyH = qMax(0, static_cast<int>(std::ceil(doc->size().height())));
+    m_body->setFixedHeight(bodyH);
+
+    // Pin the card's own height. setFixedHeight on the inner browser only
+    // clamps the browser; the card's QFrame sizeHint still cascades through
+    // QAbstractScrollArea's font-derived default and inflates the card.
+    int headerH = 0;
+    if (m_outer && m_outer->count() > 0) {
+        if (auto *headerItem = m_outer->itemAt(0)) {
+            headerH = headerItem->sizeHint().height();
+        }
+    }
+    int cardH = marginT + marginB + headerH;
+    if (m_body->isVisible()) {
+        cardH += (m_outer ? m_outer->spacing() : 0) + bodyH;
+    }
+    setFixedHeight(cardH);
 }
 
 void AcpToolCallCard::resizeEvent(QResizeEvent *event)
@@ -171,4 +186,7 @@ void AcpToolCallCard::setCollapsed(bool collapsed)
         m_expandBtn->setText(collapsed ? QStringLiteral("▸") : QStringLiteral("▾"));
         m_expandBtn->blockSignals(false);
     }
+    // Re-pin the card so it shrinks to header-only when collapsed (and
+    // grows back when re-expanded).
+    refitBodyHeight();
 }

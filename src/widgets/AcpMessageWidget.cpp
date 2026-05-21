@@ -87,6 +87,7 @@ AcpMessageWidget::AcpMessageWidget(QString role, QWidget *parent)
 
         connect(m_thoughtHeader, &QToolButton::toggled, this, [this](bool checked) {
             if (m_browser) m_browser->setVisible(checked);
+            refitBrowserHeight();
         });
     } else {
         // assistant + any other roles
@@ -137,11 +138,9 @@ void AcpMessageWidget::rerender()
 void AcpMessageWidget::refitBrowserHeight()
 {
     if (!m_browser) return;
-    // Read the available width from our own already-set geometry, not from
-    // the child viewport. Inside resizeEvent the child hasn't been laid out
-    // yet, so m_browser->viewport()->width() is stale — using it produced a
-    // narrow wrap and a tall fixed height that the bubble never recovered
-    // from. The parent's contentsRect is authoritative.
+    // Read available width from our own already-set geometry, not from the
+    // child viewport: inside resizeEvent the child has not been laid out yet,
+    // so m_browser->viewport()->width() is stale.
     int marginL = 0, marginT = 0, marginR = 0, marginB = 0;
     if (m_layout) {
         m_layout->getContentsMargins(&marginL, &marginT, &marginR, &marginB);
@@ -152,8 +151,23 @@ void AcpMessageWidget::refitBrowserHeight()
     }
     QTextDocument *doc = m_browser->document();
     doc->setTextWidth(w);
-    const int h = static_cast<int>(std::ceil(doc->size().height()));
-    m_browser->setFixedHeight(qMax(0, h));
+    const int browserH = qMax(0, static_cast<int>(std::ceil(doc->size().height())));
+    m_browser->setFixedHeight(browserH);
+
+    // Pin the bubble's own height too. setFixedHeight on the inner browser
+    // only clamps the browser — QFrame's sizeHint cascades through QBoxLayout
+    // and QAbstractScrollArea's font-derived default still inflates the
+    // bubble. Computing the bubble height here directly is authoritative.
+    int bubbleH = marginT + marginB;
+    if (m_thoughtHeader) {
+        bubbleH += m_thoughtHeader->sizeHint().height();
+        if (m_browser->isVisible()) {
+            bubbleH += m_layout->spacing() + browserH;
+        }
+    } else {
+        bubbleH += browserH;
+    }
+    setFixedHeight(bubbleH);
 }
 
 void AcpMessageWidget::resizeEvent(QResizeEvent *event)
@@ -177,4 +191,7 @@ void AcpMessageWidget::applyCollapsed(bool collapsed)
     if (m_browser) {
         m_browser->setVisible(!collapsed);
     }
+    // Re-pin the bubble so it shrinks to header-only when collapsed (and
+    // grows back when re-expanded).
+    refitBrowserHeight();
 }

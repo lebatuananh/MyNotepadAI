@@ -320,7 +320,6 @@
      <string>Settings</string>
     </property>
     <addaction name="actionPreferences"/>
-    <addaction name="actionAiAgents"/>
    </widget>
    <widget class="QMenu" name="menuMacro">
     <property name="title">
@@ -346,6 +345,8 @@
     </property>
     <addaction name="actionOpenAiAgentInWorkspace"/>
     <addaction name="actionOpenAiAgentInFolder"/>
+    <addaction name="separator"/>
+    <addaction name="actionAiAgents"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">

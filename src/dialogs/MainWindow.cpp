@@ -1063,9 +1063,7 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
         if (!manager) return;
         AiAgentDock *dock = manager->openAgent(manager->registry()->defaultAgentId(), cwd);
         if (dock) {
-            addDockWidget(AiAgentDock::defaultArea(), dock);
-            dock->show();
-            dock->raise();
+            attachAiAgentDock(dock);
         }
     });
 
@@ -1089,9 +1087,7 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
         if (!manager) return;
         AiAgentDock *dock = manager->openAgent(manager->registry()->defaultAgentId(), cwd);
         if (dock) {
-            addDockWidget(AiAgentDock::defaultArea(), dock);
-            dock->show();
-            dock->raise();
+            attachAiAgentDock(dock);
         }
     });
 
@@ -2430,6 +2426,25 @@ QMenu *MainWindow::buildMenu(QStringList actionNames)
     ActionUtils::populateActionContainer(menu, this, actionNames);
 
     return menu;
+}
+
+void MainWindow::attachAiAgentDock(AiAgentDock *dock)
+{
+    AiAgentDock *existing = nullptr;
+    const auto children = findChildren<AiAgentDock *>();
+    for (auto *d : children) {
+        if (d != dock) {
+            existing = d;
+            break;
+        }
+    }
+
+    addDockWidget(AiAgentDock::defaultArea(), dock);
+    if (existing) {
+        tabifyDockWidget(existing, dock);
+    }
+    dock->setVisible(true);
+    dock->raise();
 }
 
 void MainWindow::tabBarRightClicked(ScintillaNext *editor)

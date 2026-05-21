@@ -162,6 +162,7 @@ private:
     bool checkFileForModification(ScintillaNext *editor);
     void showSaveErrorMessage(ScintillaNext *editor, QFileDevice::FileError error);
     void showEditorZoomLevelIndicator();
+    void attachAiAgentDock(class AiAgentDock *dock);
 
     enum class UserSaveAction { SaveAll, DiscardAll, Cancel };
     UserSaveAction promptForSave(const QVector<ScintillaNext *> &editors);

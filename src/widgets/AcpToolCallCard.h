@@ -52,6 +52,8 @@ private:
     void refreshHeader();
     void rerenderBody();
     void refitBodyHeight();
+    void maybeAutoExpandForDiff();
+    bool hasDiffContent() const;
     QString statusGlyph() const;
 
     QString m_id;
@@ -61,6 +63,8 @@ private:
     QJsonArray m_content;
 
     bool m_collapsed = false;
+    bool m_userToggled = false;          // user has explicitly clicked the chevron
+    bool m_autoExpandedForDiff = false;  // we've already auto-expanded once for diff content
 
     QLabel *m_statusIcon = nullptr;
     QLabel *m_titleLabel = nullptr;

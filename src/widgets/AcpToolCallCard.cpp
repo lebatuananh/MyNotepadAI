@@ -22,13 +22,214 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
+#include <QRegularExpression>
 #include <QResizeEvent>
+#include <QStringList>
 #include <QTextBrowser>
 #include <QTextDocument>
 #include <QToolButton>
 #include <QVBoxLayout>
 
+#include <algorithm>
 #include <cmath>
+
+namespace {
+
+// Diff-row palette. Greens/reds match the accent colors already in use by
+// AcpUsageIndicator. Backgrounds are semi-transparent so the contrast holds in
+// both light and dark Qt palettes without hard-coding a chrome surface.
+constexpr const char *kDiffAddBg   = "rgba(76, 175, 80, 0.18)";
+constexpr const char *kDiffDelBg   = "rgba(217, 83, 79, 0.18)";
+constexpr const char *kDiffAddMark = "#4caf50";
+constexpr const char *kDiffDelMark = "#d9534f";
+
+// Cap LCS to bound the O(m*n) memory/time. Real edit payloads are small; this
+// is just a guard so a pathological full-file paste doesn't lock the UI.
+constexpr int kMaxLcsLines = 2000;
+
+enum class DiffKind : std::uint8_t { Context, Add, Remove };
+struct DiffLine
+{
+    DiffKind kind;
+    int oldLine; // 0 when N/A
+    int newLine; // 0 when N/A
+    QString text;
+};
+
+// QTextDocument's HTML/CSS subset does not understand the `palette(...)`
+// function. Resolve the palette to hex strings on the widget side and inline
+// them so dark themes don't fall back to black ink.
+struct DiffPalette
+{
+    QString text;
+    QString dim;
+    QString border;
+    QString headerBg;
+};
+
+QVector<DiffLine> lcsLineDiff(const QStringList &oldLines, const QStringList &newLines)
+{
+    const int m = oldLines.size();
+    const int n = newLines.size();
+    QVector<QVector<int>> dp(m + 1, QVector<int>(n + 1, 0));
+    for (int i = 1; i <= m; ++i) {
+        for (int j = 1; j <= n; ++j) {
+            if (oldLines[i - 1] == newLines[j - 1]) {
+                dp[i][j] = dp[i - 1][j - 1] + 1;
+            } else {
+                dp[i][j] = std::max(dp[i - 1][j], dp[i][j - 1]);
+            }
+        }
+    }
+    QVector<DiffLine> out;
+    int i = m, j = n;
+    while (i > 0 && j > 0) {
+        if (oldLines[i - 1] == newLines[j - 1]) {
+            out.prepend({DiffKind::Context, i, j, oldLines[i - 1]});
+            --i;
+            --j;
+        } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+            out.prepend({DiffKind::Remove, i, 0, oldLines[i - 1]});
+            --i;
+        } else {
+            out.prepend({DiffKind::Add, 0, j, newLines[j - 1]});
+            --j;
+        }
+    }
+    while (i > 0) {
+        out.prepend({DiffKind::Remove, i, 0, oldLines[i - 1]});
+        --i;
+    }
+    while (j > 0) {
+        out.prepend({DiffKind::Add, 0, j, newLines[j - 1]});
+        --j;
+    }
+    return out;
+}
+
+QString padNumber(int n, int width)
+{
+    const QString s = n > 0 ? QString::number(n) : QString();
+    // Use NBSP so QTextDocument doesn't collapse the leading spaces; we're
+    // inside white-space:pre but it's the more robust choice for HTML.
+    return QString(width - s.size(), QChar(0x00A0)) + s.toHtmlEscaped();
+}
+
+QString renderDiffRow(const DiffLine &line, const DiffPalette &pal, int numWidth)
+{
+    QString bg;
+    QString mark;
+    QString markColor;
+    int displayNum = 0;
+    switch (line.kind) {
+        case DiffKind::Add:
+            bg = QString::fromLatin1(kDiffAddBg);
+            mark = QStringLiteral("+");
+            markColor = QString::fromLatin1(kDiffAddMark);
+            displayNum = line.newLine;
+            break;
+        case DiffKind::Remove:
+            bg = QString::fromLatin1(kDiffDelBg);
+            mark = QStringLiteral("-");
+            markColor = QString::fromLatin1(kDiffDelMark);
+            displayNum = line.oldLine;
+            break;
+        case DiffKind::Context:
+            bg = QStringLiteral("transparent");
+            mark = QStringLiteral(" ");
+            markColor = pal.dim;
+            // Prefer the new-side line number so reviewers can map back to
+            // the post-change file; falls back to the old number if the
+            // diff is one-sided (shouldn't happen for context rows, but be
+            // defensive).
+            displayNum = line.newLine > 0 ? line.newLine : line.oldLine;
+            break;
+    }
+    // Single line-number column, padded with NBSP so digit positions align
+    // regardless of row kind (the previous two-column layout shifted the
+    // number to the left for deletions and to the right for additions).
+    return QStringLiteral(
+               "<div style=\"background:%1; color:%2; white-space:pre; "
+               "font-family: Consolas, monospace; padding: 0 4px;\">"
+               "<span style=\"color:%3;\">%4</span> "
+               "<span style=\"color:%5;\">%6</span> %7</div>")
+        .arg(bg, pal.text, pal.dim, padNumber(displayNum, numWidth),
+             markColor, mark, line.text.toHtmlEscaped());
+}
+
+QString renderDiffBlock(const QJsonObject &block, const DiffPalette &pal)
+{
+    const QString path = block.value(QStringLiteral("path")).toString();
+    const QJsonValue oldVal = block.value(QStringLiteral("oldText"));
+    const QJsonValue newVal = block.value(QStringLiteral("newText"));
+    const bool oldIsNull = oldVal.isNull() || oldVal.isUndefined();
+    const QString oldText = oldIsNull ? QString() : oldVal.toString();
+    const QString newText = newVal.toString();
+
+    auto splitLines = [](const QString &s) {
+        QStringList lines = s.split(QLatin1Char('\n'));
+        if (!lines.isEmpty() && lines.last().isEmpty()) lines.removeLast();
+        return lines;
+    };
+    const QStringList oldLines = splitLines(oldText);
+    const QStringList newLines = splitLines(newText);
+
+    QVector<DiffLine> rows;
+    if (oldIsNull || oldText.isEmpty()) {
+        rows.reserve(newLines.size());
+        for (int k = 0; k < newLines.size(); ++k) {
+            rows.append({DiffKind::Add, 0, k + 1, newLines[k]});
+        }
+    } else if (oldLines.size() > kMaxLcsLines || newLines.size() > kMaxLcsLines) {
+        rows.reserve(oldLines.size() + newLines.size());
+        for (int k = 0; k < oldLines.size(); ++k) {
+            rows.append({DiffKind::Remove, k + 1, 0, oldLines[k]});
+        }
+        for (int k = 0; k < newLines.size(); ++k) {
+            rows.append({DiffKind::Add, 0, k + 1, newLines[k]});
+        }
+    } else {
+        rows = lcsLineDiff(oldLines, newLines);
+    }
+
+    const int numWidth = qMax(1,
+        qMax(QString::number(oldLines.size()).size(),
+             QString::number(newLines.size()).size()));
+
+    QString html;
+    html += QStringLiteral(
+                "<div style=\"background: %1; color: %2; padding: 4px 6px; "
+                "border: 1px solid %3; border-radius: 4px; "
+                "font-family: Consolas, monospace; margin-bottom: 4px;\">%4</div>")
+                .arg(pal.headerBg, pal.text, pal.border, path.toHtmlEscaped());
+    html += QStringLiteral("<div style=\"border: 1px solid %1; border-radius: 4px;\">")
+                .arg(pal.border);
+    for (const auto &row : rows) {
+        html += renderDiffRow(row, pal, numWidth);
+    }
+    html += QStringLiteral("</div>");
+    return html;
+}
+
+// Strip the markdown code fence and the `<tool_use_error>` sentinel that the
+// Claude Code agent wraps tool errors in. The user wants to see the human
+// message, not the formatting envelope.
+QString sanitizeToolText(const QString &raw)
+{
+    QString s = raw;
+    static const QRegularExpression kFenceStart(
+        QStringLiteral("\\A```[A-Za-z0-9_+\\-]*\\n"));
+    static const QRegularExpression kFenceEnd(
+        QStringLiteral("\\n?```\\s*\\z"));
+    static const QRegularExpression kToolErrTag(
+        QStringLiteral("</?tool_use_error>"));
+    s.remove(kFenceStart);
+    s.remove(kFenceEnd);
+    s.remove(kToolErrTag);
+    return s.trimmed();
+}
+
+} // namespace
 
 AcpToolCallCard::AcpToolCallCard(const AcpProtocol::AcpToolCall &initial, QWidget *parent)
     : QFrame(parent)
@@ -78,6 +279,7 @@ AcpToolCallCard::AcpToolCallCard(const AcpProtocol::AcpToolCall &initial, QWidge
     outer->addWidget(m_body);
 
     connect(m_expandBtn, &QToolButton::toggled, this, [this](bool checked) {
+        m_userToggled = true;
         setCollapsed(!checked);
     });
 
@@ -86,7 +288,9 @@ AcpToolCallCard::AcpToolCallCard(const AcpProtocol::AcpToolCall &initial, QWidge
     // Cards land collapsed by default — the title alone is enough to scan
     // a turn; click the chevron to read the body. Keeps long transcripts
     // skimmable without forcing the user to collapse each card by hand.
+    // Diffs are an exception: their value is in the body, so auto-expand.
     setCollapsed(true);
+    maybeAutoExpandForDiff();
 }
 
 void AcpToolCallCard::apply(const AcpProtocol::AcpToolCallUpdate &update)
@@ -99,6 +303,26 @@ void AcpToolCallCard::apply(const AcpProtocol::AcpToolCallUpdate &update)
     }
     refreshHeader();
     rerenderBody();
+    maybeAutoExpandForDiff();
+}
+
+bool AcpToolCallCard::hasDiffContent() const
+{
+    for (const auto &v : m_content) {
+        if (v.isObject()
+            && v.toObject().value(QStringLiteral("type")).toString() == QLatin1String("diff")) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void AcpToolCallCard::maybeAutoExpandForDiff()
+{
+    if (m_autoExpandedForDiff || m_userToggled) return;
+    if (!hasDiffContent()) return;
+    m_autoExpandedForDiff = true;
+    setCollapsed(false);
 }
 
 QString AcpToolCallCard::statusGlyph() const
@@ -118,6 +342,73 @@ void AcpToolCallCard::refreshHeader()
 void AcpToolCallCard::rerenderBody()
 {
     if (!m_body) return;
+
+    if (hasDiffContent()) {
+        // Resolve palette colors to hex strings — QTextDocument's CSS subset
+        // does not honour palette(...) so leaving them symbolic would render
+        // black ink on dark themes.
+        const QPalette pal = palette();
+        const DiffPalette dpal{
+            pal.color(QPalette::Text).name(),
+            pal.color(QPalette::PlaceholderText).name(),
+            pal.color(QPalette::Mid).name(),
+            pal.color(QPalette::AlternateBase).name(),
+        };
+        // HTML mode: mix text + image + diff blocks into one document.
+        QString html;
+        bool decodedSomething = false;
+        for (const auto &v : m_content) {
+            if (!v.isObject()) continue;
+            const QJsonObject obj = v.toObject();
+            const QString type = obj.value(QStringLiteral("type")).toString();
+            if (type == QLatin1String("text")) {
+                html += QStringLiteral("<pre style=\"font-family: Consolas, monospace; "
+                                       "color: %1; white-space: pre-wrap; "
+                                       "margin: 0 0 4px 0;\">%2</pre>")
+                            .arg(dpal.text,
+                                 obj.value(QStringLiteral("text")).toString().toHtmlEscaped());
+                decodedSomething = true;
+            } else if (type == QLatin1String("image")) {
+                html += QStringLiteral("<p style=\"color: %1; margin: 0 0 4px 0;\">[image]</p>")
+                            .arg(dpal.dim);
+                decodedSomething = true;
+            } else if (type == QLatin1String("diff")) {
+                html += renderDiffBlock(obj, dpal);
+                decodedSomething = true;
+            } else if (type == QLatin1String("content")) {
+                // Wrapped content block — agent nests {type:text|image, ...}
+                // under a `content` field. Surface the inner payload only,
+                // stripping the tool_use_error sentinel / fence noise.
+                const QJsonObject inner = obj.value(QStringLiteral("content")).toObject();
+                const QString innerType = inner.value(QStringLiteral("type")).toString();
+                if (innerType == QLatin1String("text")) {
+                    const QString clean = sanitizeToolText(
+                        inner.value(QStringLiteral("text")).toString());
+                    html += QStringLiteral("<pre style=\"font-family: Consolas, monospace; "
+                                           "color: %1; white-space: pre-wrap; "
+                                           "margin: 0 0 4px 0;\">%2</pre>")
+                                .arg(dpal.text, clean.toHtmlEscaped());
+                    decodedSomething = true;
+                } else if (innerType == QLatin1String("image")) {
+                    html += QStringLiteral("<p style=\"color: %1; margin: 0 0 4px 0;\">[image]</p>")
+                                .arg(dpal.dim);
+                    decodedSomething = true;
+                }
+            }
+        }
+        if (!decodedSomething) {
+            html = QStringLiteral("<pre style=\"color: %1;\">%2</pre>")
+                       .arg(dpal.text,
+                            QString::fromUtf8(QJsonDocument(m_content)
+                                                  .toJson(QJsonDocument::Indented))
+                                .toHtmlEscaped());
+        }
+        m_body->setHtml(html);
+        refitBodyHeight();
+        return;
+    }
+
+    // Plain-text mode (no diff in this card).
     QString text;
     bool decodedSomething = false;
     for (const auto &v : m_content) {
@@ -131,6 +422,17 @@ void AcpToolCallCard::rerenderBody()
         } else if (type == QLatin1String("image")) {
             text += QStringLiteral("[image]\n");
             decodedSomething = true;
+        } else if (type == QLatin1String("content")) {
+            const QJsonObject inner = obj.value(QStringLiteral("content")).toObject();
+            const QString innerType = inner.value(QStringLiteral("type")).toString();
+            if (innerType == QLatin1String("text")) {
+                text += sanitizeToolText(inner.value(QStringLiteral("text")).toString());
+                text += QLatin1Char('\n');
+                decodedSomething = true;
+            } else if (innerType == QLatin1String("image")) {
+                text += QStringLiteral("[image]\n");
+                decodedSomething = true;
+            }
         }
     }
     if (!decodedSomething && !m_content.isEmpty()) {

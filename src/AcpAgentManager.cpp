@@ -326,6 +326,8 @@ void AcpAgentManager::wireConnectionToModel(AcpConnection *conn, AcpSessionModel
             model, &AcpSessionModel::onConfigOptionsUpdated);
     connect(conn, &AcpConnection::usageUpdated,
             model, &AcpSessionModel::onUsageUpdated);
+    connect(conn, &AcpConnection::usageReplaced,
+            model, &AcpSessionModel::onUsageReplaced);
     connect(conn, &AcpConnection::promptStarted,
             model, &AcpSessionModel::onPromptStarted);
     connect(conn, &AcpConnection::promptEnded,

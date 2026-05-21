@@ -228,6 +228,7 @@ bool NotepadNextApplication::init()
         qInfo("Restoring previous session");
 
         sessionManager->loadSession(window);
+        window->restoreOpenWorkspaces();
     }
 
     openFiles(parser.positionalArguments());

@@ -135,6 +135,10 @@ public slots:
     void onCurrentModeChanged(const QString &modeId);
     void onConfigOptionsUpdated(const QList<AcpProtocol::AcpConfigOption> &options);
     void onUsageUpdated(const AcpProtocol::AcpUsage &usage);
+    // Authoritative replacement (from `usage_update` notifications). Overwrites
+    // m_usage wholesale instead of merging — used when the agent reports a
+    // running total that supersedes earlier partial info.
+    void onUsageReplaced(const AcpProtocol::AcpUsage &usage);
     void onPromptStarted();
     void onPromptEnded();
 

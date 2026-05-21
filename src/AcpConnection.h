@@ -110,6 +110,10 @@ signals:
     void currentModeChanged(const QString &id);
     void configOptionsUpdated(const QList<AcpProtocol::AcpConfigOption> &options);
     void usageUpdated(const AcpProtocol::AcpUsage &usage);
+    // Emitted for live `usage_update` notifications, which the agent treats
+    // as the authoritative running total — receivers should overwrite their
+    // usage snapshot rather than merging.
+    void usageReplaced(const AcpProtocol::AcpUsage &usage);
     void promptStarted();
     void promptEnded();
 

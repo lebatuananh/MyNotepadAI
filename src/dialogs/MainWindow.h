@@ -129,6 +129,7 @@ public slots:
     void checkForUpdates(bool silent = false);
 
     void restoreWindowState();
+    void restoreOpenWorkspaces();
 
     void switchToEditor(const ScintillaNext *editor);
 

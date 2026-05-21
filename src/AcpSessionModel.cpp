@@ -564,6 +564,15 @@ void AcpSessionModel::onUsageUpdated(const AcpUsage &usage)
     schedulePersistIfNeeded();
 }
 
+void AcpSessionModel::onUsageReplaced(const AcpUsage &usage)
+{
+    // `usage_update` is the agent's authoritative running total — overwrite
+    // the snapshot so stale fields (e.g. a previous turn's cost) don't linger.
+    m_usage = usage;
+    emit usageChanged();
+    schedulePersistIfNeeded();
+}
+
 void AcpSessionModel::onPromptStarted()
 {
     m_isProcessing = true;

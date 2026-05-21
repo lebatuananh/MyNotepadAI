@@ -36,18 +36,22 @@ AcpUsageIndicator::AcpUsageIndicator(QWidget *parent)
 {
     auto *layout = new QHBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(6);
+    layout->setSpacing(4);
 
     m_label = new QLabel(this);
     m_label->setAccessibleName(tr("Token usage"));
     m_label->setAccessibleDescription(tr("Total tokens used in the latest turn"));
+    // Fixed sizePolicy so the label always shrinks back when the optional
+    // cost suffix is dropped — otherwise the cached wider sizeHint leaves an
+    // empty slot between label and bar.
+    m_label->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
     m_label->hide();
 
     m_bar = new QProgressBar(this);
     m_bar->setTextVisible(false);
     m_bar->setFixedHeight(6);
-    m_bar->setMinimumWidth(60);
-    m_bar->setMaximumWidth(120);
+    m_bar->setMinimumWidth(40);
+    m_bar->setMaximumWidth(70);
     m_bar->setAccessibleName(tr("Context window usage"));
     m_bar->setAccessibleDescription(tr("Fraction of the model's context window consumed"));
     m_bar->setStyleSheet(QString::fromLatin1(kStyleSheet));
@@ -87,6 +91,7 @@ void AcpUsageIndicator::setUsage(const std::optional<AcpProtocol::AcpUsage> &usa
                   + currency + QStringLiteral(")");
         }
         m_label->setText(text);
+        m_label->adjustSize();
         m_label->show();
     } else {
         m_label->hide();

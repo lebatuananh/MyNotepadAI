@@ -731,6 +731,8 @@ void AcpConnection::handleInboundNotification(const QString &method, const QJson
         emit usageUpdated(usage);
     } else if (kind == QLatin1String("usage_update")) {
         // Flat shape: { sessionUpdate: "usage_update", used: N, size: N, cost: {...} }
+        // The agent treats this as the authoritative running total, so it
+        // replaces the snapshot (see AcpConnection::usageReplaced docs).
         AcpProtocol::AcpUsage usage;
         if (update.contains(QStringLiteral("used"))) {
             usage.totalTokens = update.value(QStringLiteral("used")).toInt();
@@ -750,7 +752,7 @@ void AcpConnection::handleInboundNotification(const QString &method, const QJson
                 usage.costCurrency = currency.toString();
             }
         }
-        emit usageUpdated(usage);
+        emit usageReplaced(usage);
     } else if (kind == QLatin1String("prompt_start")) {
         beginPrompt();
     } else if (kind == QLatin1String("prompt_end")) {

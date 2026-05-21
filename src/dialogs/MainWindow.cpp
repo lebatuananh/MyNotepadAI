@@ -1440,6 +1440,35 @@ void MainWindow::registerWorkspaceDock(FolderAsWorkspaceDock *dock)
     });
 }
 
+void MainWindow::restoreOpenWorkspaces()
+{
+    // Qt's saveState/restoreState only preserves layout for docks that already
+    // exist at restore time. Extra workspace docks are spawned on-demand, so we
+    // recreate them here from the persisted path list before restoreWindowState
+    // runs — that way their tab positions get restored too.
+    ApplicationSettings *settings = app->getSettings();
+    const QStringList savedWorkspaces = settings->value("FolderAsWorkspace/Workspaces").toStringList();
+    const QString activePath = settings->value("FolderAsWorkspace/ActiveWorkspace").toString();
+
+    for (const QString &path : savedWorkspaces) {
+        if (path.isEmpty()) continue;
+        // openFolderAsWorkspacePath deduplicates against existing docks (including
+        // the initial one, which loaded its path from the legacy singular setting).
+        openFolderAsWorkspacePath(path);
+    }
+
+    if (!activePath.isEmpty()) {
+        const QString cleanedActive = QDir::cleanPath(activePath);
+        for (FolderAsWorkspaceDock *d : findChildren<FolderAsWorkspaceDock *>()) {
+            if (QDir::cleanPath(d->rootPath()) == cleanedActive) {
+                m_activeWorkspace = d;
+                d->raise();
+                break;
+            }
+        }
+    }
+}
+
 FolderAsWorkspaceDock *MainWindow::activeWorkspaceDock() const
 {
     if (m_activeWorkspace && !m_activeWorkspace->rootPath().isEmpty()) {
@@ -2221,6 +2250,17 @@ void MainWindow::saveSettings() const
     settings->setValue("MainWindow/windowState", saveState());
 
     settings->setValue("Editor/ZoomLevel", zoomLevel);
+
+    QStringList openWorkspaces;
+    for (const FolderAsWorkspaceDock *d : findChildren<FolderAsWorkspaceDock *>()) {
+        const QString path = d->rootPath();
+        if (!path.isEmpty() && !openWorkspaces.contains(path)) {
+            openWorkspaces << path;
+        }
+    }
+    settings->setValue("FolderAsWorkspace/Workspaces", openWorkspaces);
+    settings->setValue("FolderAsWorkspace/ActiveWorkspace",
+                       m_activeWorkspace ? m_activeWorkspace->rootPath() : QString());
 }
 
 void MainWindow::restoreSettings()

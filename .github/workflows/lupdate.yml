@@ -1,9 +1,9 @@
 name: Update translation files
 
-on: 
+on:
   workflow_dispatch:
-  schedule:
-    - cron: '35 1 * * 0'
+  # schedule:
+  #   - cron: '35 1 * * 0'
 
 jobs:
   lupdate:

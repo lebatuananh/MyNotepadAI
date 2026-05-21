@@ -21,6 +21,9 @@
 #include <QToolButton>
 #include <QStyle>
 #include <QMenu>
+#include <QEvent>
+#include <QPainter>
+#include <QPixmap>
 
 #include <map>
 
@@ -31,22 +34,51 @@ namespace
     constexpr QLatin1StringView IconPlusPath(":/icons/plus.svg");
     constexpr QLatin1StringView IconListPath(":/icons/list_with_icons.svg");
     constexpr QLatin1StringView IconCrossPath(":/icons/cross.svg");
+
+    // The three svgs we ship use stroke="currentColor". Qt's svg icon engine
+    // resolves that to opaque black, which is invisible on dark backgrounds.
+    // Re-render the icon as a set of pixmaps at common toolbutton sizes and
+    // tint each one with `color` via SourceIn so the alpha (the strokes) is
+    // preserved while the rgb becomes the palette text color.
+    QIcon tintedIcon(const QString &svgPath, const QColor &color)
+    {
+        QIcon source(svgPath);
+        if (source.isNull()) return source;
+
+        QIcon dst;
+        // Cover the sizes Qt asks for in practice: small icon (16 on most
+        // styles, sometimes 22/24), plus a few larger so HiDPI scaling has
+        // sharp source pixmaps.
+        const QList<int> sizes{16, 20, 22, 24, 32, 48, 64};
+        for (int sz : sizes) {
+            QPixmap pm = source.pixmap(sz, sz);
+            if (pm.isNull()) continue;
+            QPainter p(&pm);
+            p.setCompositionMode(QPainter::CompositionMode_SourceIn);
+            p.fillRect(pm.rect(), color);
+            p.end();
+            dst.addPixmap(pm);
+        }
+        return dst;
+    }
 }
 
 TabsQuickActionsBar::TabsQuickActionsBar(const Buttons &visibileButtons, QWidget *parent)
     : QToolBar(parent)
 {
-    createNewTabAction = addAction(QIcon(IconPlusPath), "");
+    createNewTabAction = addAction(QIcon(), "");
     createNewTabAction->setToolTip(tr("Create a new file"));
 
-    showTabsMenuAction = addAction(QIcon(IconListPath), "");
+    showTabsMenuAction = addAction(QIcon(), "");
     showTabsMenuAction->setToolTip(tr("Show opened files list"));
 
     const auto tabsMenu = new QMenu(this);
     showTabsMenuAction->setMenu(tabsMenu);
 
-    closeCurrentTabAction = addAction(QIcon(IconCrossPath), "");
+    closeCurrentTabAction = addAction(QIcon(), "");
     closeCurrentTabAction->setToolTip(tr("Close the current file"));
+
+    rebuildIcons();
 
     const auto iconSize = qApp->style()->pixelMetric(QStyle::PM_SmallIconSize);
     setIconSize({ iconSize, iconSize });
@@ -64,6 +96,29 @@ TabsQuickActionsBar::TabsQuickActionsBar(const Buttons &visibileButtons, QWidget
     connect(closeCurrentTabAction, &QAction::triggered, this, &TabsQuickActionsBar::closeCurrentTabClicked);
 
     setVisibileButtons(visibileButtons);
+}
+
+void TabsQuickActionsBar::rebuildIcons()
+{
+    const QColor color = palette().color(QPalette::WindowText);
+    createNewTabAction->setIcon(tintedIcon(IconPlusPath, color));
+    showTabsMenuAction->setIcon(tintedIcon(IconListPath, color));
+    closeCurrentTabAction->setIcon(tintedIcon(IconCrossPath, color));
+}
+
+void TabsQuickActionsBar::changeEvent(QEvent *event)
+{
+    QToolBar::changeEvent(event);
+
+    switch (event->type()) {
+    case QEvent::PaletteChange:
+    case QEvent::StyleChange:
+    case QEvent::ApplicationPaletteChange:
+        rebuildIcons();
+        break;
+    default:
+        break;
+    }
 }
 
 void TabsQuickActionsBar::setVisibileButtons(const Buttons &buttons)

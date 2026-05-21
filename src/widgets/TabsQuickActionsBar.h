@@ -65,7 +65,16 @@ public:
     void setVisibileButtons(const Buttons &buttons);
     void setVisibileButton(Button button, bool on = true);
 
+protected:
+    // The svg icons in :/icons/{plus,list_with_icons,cross}.svg use
+    // stroke="currentColor" which Qt's svg icon engine renders as black.
+    // Re-tint when the palette changes so dark mode doesn't end up with
+    // black-on-black icons.
+    void changeEvent(QEvent *event) override;
+
 private:
+    void rebuildIcons();
+
     Buttons visibileButtons = TabsQuickActionsBar::All;
 
     QAction *createNewTabAction = nullptr;

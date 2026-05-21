@@ -1,13 +1,13 @@
 name: Build Notepad Next
 
 on:
-  workflow_dispatch: 
+  workflow_dispatch:
   push:
-    branches:
-      - master
+    # branches:
+    #   - master
     tags:
       - '*'
-  pull_request:
+  # pull_request:
 
 env:
   QT_RELEASE_VER: 6.5

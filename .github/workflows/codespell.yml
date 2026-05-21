@@ -2,9 +2,12 @@ name: Codespell
 
 on:
   push:
-    branches:
-      - master
-  pull_request:
+    tags:
+      - '*'
+  # push:
+  #   branches:
+  #     - master
+  # pull_request:
   
 jobs:
   codespell:

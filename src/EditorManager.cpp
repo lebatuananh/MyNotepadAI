@@ -322,6 +322,11 @@ void EditorManager::applyThemeToEditor(ScintillaNext *editor, bool dark, bool in
     const unsigned int selInactiveBack = dark ? 0xFF504030U : 0xFFE0E0E0U;
     const unsigned int whiteSpaceFore  = dark ? 0xFF606060U : 0xFFD0D0D0U;
     const unsigned int foldLine        = dark ? 0xFF5A5A5AU : 0xFFA0A0A0U;
+    // Caret: Scintilla defaults to opaque black, which is invisible on the
+    // dark editor background. Match defaultFore so it stays visible in both
+    // modes. Format is 0xAABBGGRR.
+    const unsigned int caretFore           = dark ? 0xFFD4D4D4U : 0xFF000000U;
+    const unsigned int caretAdditionalFore = dark ? 0xFFA0A0A0U : 0xFF606060U;
 
     editor->styleSetFore(STYLE_DEFAULT, defaultFore);
     editor->styleSetBack(STYLE_DEFAULT, defaultBack);
@@ -378,6 +383,8 @@ void EditorManager::applyThemeToEditor(ScintillaNext *editor, bool dark, bool in
     // https://www.scintilla.org/ScintillaDoc.html#ElementColours
     editor->setElementColour(SC_ELEMENT_SELECTION_INACTIVE_BACK, selInactiveBack);
     editor->setElementColour(SC_ELEMENT_CARET_LINE_BACK, caretLineBack);
+    editor->setElementColour(SC_ELEMENT_CARET, caretFore);
+    editor->setElementColour(SC_ELEMENT_CARET_ADDITIONAL, caretAdditionalFore);
     editor->setElementColour(SC_ELEMENT_WHITE_SPACE, whiteSpaceFore);
     editor->setElementColour(SC_ELEMENT_FOLD_LINE, foldLine);
 

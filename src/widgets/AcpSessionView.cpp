@@ -489,6 +489,7 @@ void AcpSessionView::rebind(AcpSessionModel *model, AcpConnection *connection)
 
     m_model = model;
     m_connection = connection;
+    m_savedPrefsApplied = false;
 
     // Clear the transcript: drop bubbles, cards, plan, permission prompts.
     // Leave the trailing stretch in place, and skip the inline heartbeat
@@ -735,6 +736,10 @@ void AcpSessionView::onMetadataChanged()
     m_effortCombo->setVisible(m_effortCombo->count() > 0);
 
     m_updatingSelectors = false;
+
+    // Once the agent's catalogs have arrived, push any saved per-agent
+    // selections back into the session (one-shot per session).
+    applySavedPreferences();
 }
 
 void AcpSessionView::onCurrentModeChanged(const QString &modeId)
@@ -877,14 +882,24 @@ void AcpSessionView::onModelComboChanged(int index)
 {
     if (m_updatingSelectors || !m_connection || index < 0) return;
     const QString id = m_modelCombo->itemData(index).toString();
-    if (!id.isEmpty()) m_connection->setModel(id);
+    if (id.isEmpty()) return;
+    m_connection->setModel(id);
+    if (m_registry) {
+        m_registry->setAgentPreference(m_connection->definition().id,
+                                       QStringLiteral("model"), id);
+    }
 }
 
 void AcpSessionView::onModeComboChanged(int index)
 {
     if (m_updatingSelectors || !m_connection || index < 0) return;
     const QString id = m_modeCombo->itemData(index).toString();
-    if (!id.isEmpty()) m_connection->setMode(id);
+    if (id.isEmpty()) return;
+    m_connection->setMode(id);
+    if (m_registry) {
+        m_registry->setAgentPreference(m_connection->definition().id,
+                                       QStringLiteral("mode"), id);
+    }
 }
 
 void AcpSessionView::onEffortComboChanged(int index)
@@ -893,6 +908,66 @@ void AcpSessionView::onEffortComboChanged(int index)
     if (m_effortConfigOptionId.isEmpty()) return;
     const QString val = m_effortCombo->itemData(index).toString();
     m_connection->setConfigOption(m_effortConfigOptionId, val);
+    if (m_registry && !val.isEmpty()) {
+        m_registry->setAgentPreference(m_connection->definition().id,
+                                       m_effortConfigOptionId, val);
+    }
+}
+
+void AcpSessionView::applySavedPreferences()
+{
+    if (m_savedPrefsApplied) return;
+    if (!m_registry || !m_connection || !m_model) return;
+    // Wait until the agent's catalogs have been populated, otherwise we can't
+    // tell whether a saved id is still valid.
+    const bool catalogsReady = !m_model->availableModels().isEmpty()
+        || !m_model->availableModes().isEmpty()
+        || !m_model->configOptions().isEmpty();
+    if (!catalogsReady) return;
+
+    m_savedPrefsApplied = true;
+    const QString agentId = m_connection->definition().id;
+    if (agentId.isEmpty()) return;
+
+    // Model: send only if the saved id exists in the catalog and differs.
+    const QString savedModel = m_registry->agentPreference(agentId, QStringLiteral("model"));
+    if (!savedModel.isEmpty() && savedModel != m_model->currentModelId()) {
+        for (const auto &m : m_model->availableModels()) {
+            if (m.id == savedModel) {
+                m_connection->setModel(savedModel);
+                break;
+            }
+        }
+    }
+
+    // Mode.
+    const QString savedMode = m_registry->agentPreference(agentId, QStringLiteral("mode"));
+    if (!savedMode.isEmpty() && savedMode != m_model->currentModeId()) {
+        for (const auto &m : m_model->availableModes()) {
+            if (m.id == savedMode) {
+                m_connection->setMode(savedMode);
+                break;
+            }
+        }
+    }
+
+    // Effort / reasoning level: keyed by the matched config-option id.
+    if (!m_effortConfigOptionId.isEmpty()) {
+        const QString savedEffort = m_registry->agentPreference(agentId, m_effortConfigOptionId);
+        if (!savedEffort.isEmpty()) {
+            for (const auto &opt : m_model->configOptions()) {
+                if (opt.id != m_effortConfigOptionId) continue;
+                if (opt.currentValue.toString() == savedEffort) break;
+                for (const auto &ch : opt.options) {
+                    if (ch.value == savedEffort) {
+                        m_connection->setConfigOption(m_effortConfigOptionId, savedEffort);
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+    }
 }
 
 void AcpSessionView::onJumpToBottomClicked()

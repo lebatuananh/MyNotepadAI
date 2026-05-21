@@ -98,6 +98,7 @@ CREATE_SETTING(Terminal, TerminalFont, terminalFont, QString, []() {
 static const char kAiDefaultAgentIdKey[]      = "Ai/DefaultAgentId";
 static const char kAiAutoApprovePolicyKey[]   = "Ai/AutoApprovePermissions";
 static const char kAiAgentsJsonKey[]          = "Ai/Agents";
+static const char kAiAgentPreferencesJsonKey[] = "Ai/AgentPreferences";
 
 QString ApplicationSettings::defaultAiAgentId() const
 {
@@ -131,4 +132,15 @@ void ApplicationSettings::setAiAgentsJson(const QString &json)
 {
     setValue(QLatin1String(kAiAgentsJsonKey), json);
     emit aiAgentsJsonChanged(json);
+}
+
+QString ApplicationSettings::aiAgentPreferencesJson() const
+{
+    return value(QLatin1String(kAiAgentPreferencesJsonKey), QString()).toString();
+}
+
+void ApplicationSettings::setAiAgentPreferencesJson(const QString &json)
+{
+    setValue(QLatin1String(kAiAgentPreferencesJsonKey), json);
+    emit aiAgentPreferencesJsonChanged(json);
 }

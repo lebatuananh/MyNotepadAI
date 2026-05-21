@@ -136,6 +136,11 @@ private:
     void resetElapsed();
     void onElapsedTick();
 
+    // Push the user's saved per-agent preferences (model/mode/effort) into
+    // the running session. Called once per session after metadata first
+    // populates the available catalogs.
+    void applySavedPreferences();
+
     AcpSessionModel *m_model = nullptr;       // non-owning
     AcpConnection *m_connection = nullptr;    // non-owning
     AcpAgentRegistry *m_registry = nullptr;   // non-owning
@@ -192,6 +197,11 @@ private:
     QPointer<AcpPermissionPrompt> m_activePermissionPrompt;
 
     bool m_updatingSelectors = false;
+
+    // Per-session one-shot: after metadata first arrives we push the user's
+    // saved selections (model/mode/effort) back into the agent. Cleared on
+    // rebind() so a restarted session re-applies preferences.
+    bool m_savedPrefsApplied = false;
 
     // Auto-scroll state. The transcript is "stuck to the bottom" when the
     // user is parked at (or within a few px of) the maximum scroll value.

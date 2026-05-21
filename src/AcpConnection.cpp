@@ -278,20 +278,6 @@ void AcpConnection::sendNewSession()
                     const QJsonObject r = result.toObject();
                     m_sessionId = r.value(QStringLiteral("sessionId")).toString();
 
-                    // Flush any prompts the user queued while session/new was
-                    // still in flight. Move the queue aside first so a
-                    // re-entrant sendPrompt (shouldn't happen, but be safe)
-                    // doesn't infinite-loop.
-                    if (!m_pendingPrompts.isEmpty()) {
-                        const auto pending = std::move(m_pendingPrompts);
-                        m_pendingPrompts.clear();
-                        appendDebugLog(QStringLiteral("session/new: flushing %1 deferred prompt(s)")
-                                           .arg(pending.size()));
-                        for (const auto &p : pending) {
-                            sendPrompt(p.text, p.images);
-                        }
-                    }
-
                     m_availableCommands.clear();
                     for (const auto &v : r.value(QStringLiteral("availableCommands")).toArray()) {
                         m_availableCommands.append(v.toString());
@@ -338,10 +324,32 @@ void AcpConnection::sendNewSession()
 
                     m_configOptions = parseConfigOptions(r.value(QStringLiteral("configOptions")).toArray());
 
+                    // Emit BEFORE flushing any prompts queued during session/new.
+                    // The view applies the user's saved per-agent preferences
+                    // (model/mode/effort) on this signal, dispatching the
+                    // corresponding set_* requests synchronously. Flushing the
+                    // pending prompts afterwards keeps those config requests
+                    // ahead of the prompt on the wire, so the deferred prompt
+                    // is processed with the user's saved selection rather than
+                    // the agent's session defaults.
                     emit initialized(m_agentInfo, m_availableCommands,
                                      m_modes, m_currentMode,
                                      m_models, m_currentModel,
                                      m_configOptions);
+
+                    // Flush any prompts the user queued while session/new was
+                    // still in flight. Move the queue aside first so a
+                    // re-entrant sendPrompt (shouldn't happen, but be safe)
+                    // doesn't infinite-loop.
+                    if (!m_pendingPrompts.isEmpty()) {
+                        const auto pending = std::move(m_pendingPrompts);
+                        m_pendingPrompts.clear();
+                        appendDebugLog(QStringLiteral("session/new: flushing %1 deferred prompt(s)")
+                                           .arg(pending.size()));
+                        for (const auto &p : pending) {
+                            sendPrompt(p.text, p.images);
+                        }
+                    }
                 });
 }
 

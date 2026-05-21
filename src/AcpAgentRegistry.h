@@ -51,6 +51,14 @@ public:
     QString autoApprovePolicy() const;
     void setAutoApprovePolicy(const QString &policy);
 
+    // Per-agent UI preference (model / mode / effort etc.). Stored in
+    // ApplicationSettings as a single JSON object so the user's last
+    // selection survives session restart and new-session creation.
+    // `key` is the preference name (e.g. "model", "mode", or the effort
+    // config-option id). Empty string means "no saved value".
+    QString agentPreference(const QString &agentId, const QString &key) const;
+    void setAgentPreference(const QString &agentId, const QString &key, const QString &value);
+
 signals:
     void changed();
     void defaultAgentIdChanged(const QString &id);

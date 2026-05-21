@@ -259,3 +259,55 @@ void AcpAgentRegistry::setAutoApprovePolicy(const QString &policy)
     m_settings->setAiAutoApprovePolicy(normalized);
     emit autoApprovePolicyChanged(normalized);
 }
+
+QString AcpAgentRegistry::agentPreference(const QString &agentId, const QString &key) const
+{
+    if (!m_settings || agentId.isEmpty() || key.isEmpty()) {
+        return QString();
+    }
+    const QString raw = m_settings->aiAgentPreferencesJson();
+    if (raw.isEmpty()) {
+        return QString();
+    }
+    const QJsonDocument doc = QJsonDocument::fromJson(raw.toUtf8());
+    if (!doc.isObject()) {
+        return QString();
+    }
+    const QJsonObject root = doc.object();
+    const QJsonValue agentEntry = root.value(agentId);
+    if (!agentEntry.isObject()) {
+        return QString();
+    }
+    return agentEntry.toObject().value(key).toString();
+}
+
+void AcpAgentRegistry::setAgentPreference(const QString &agentId, const QString &key, const QString &value)
+{
+    if (!m_settings || agentId.isEmpty() || key.isEmpty()) {
+        return;
+    }
+    QJsonObject root;
+    const QString raw = m_settings->aiAgentPreferencesJson();
+    if (!raw.isEmpty()) {
+        const QJsonDocument doc = QJsonDocument::fromJson(raw.toUtf8());
+        if (doc.isObject()) {
+            root = doc.object();
+        }
+    }
+    QJsonObject agentEntry = root.value(agentId).toObject();
+    if (agentEntry.value(key).toString() == value) {
+        return;
+    }
+    if (value.isEmpty()) {
+        agentEntry.remove(key);
+    } else {
+        agentEntry.insert(key, value);
+    }
+    if (agentEntry.isEmpty()) {
+        root.remove(agentId);
+    } else {
+        root.insert(agentId, agentEntry);
+    }
+    m_settings->setAiAgentPreferencesJson(
+        QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Compact)));
+}

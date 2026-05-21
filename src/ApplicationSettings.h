@@ -138,15 +138,18 @@ public:
     QString defaultAiAgentId() const;
     QString aiAutoApprovePolicy() const;
     QString aiAgentsJson() const;
+    QString aiAgentPreferencesJson() const;
 
 public slots:
     void setDefaultAiAgentId(const QString &id);
     void setAiAutoApprovePolicy(const QString &policy);
     void setAiAgentsJson(const QString &json);
+    void setAiAgentPreferencesJson(const QString &json);
 
 signals:
     void defaultAiAgentIdChanged(const QString &id);
     void aiAutoApprovePolicyChanged(const QString &policy);
     void autoApprovePolicyChanged(const QString &policy);
     void aiAgentsJsonChanged(const QString &json);
+    void aiAgentPreferencesJsonChanged(const QString &json);
 };

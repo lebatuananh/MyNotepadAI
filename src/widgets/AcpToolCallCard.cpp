@@ -54,9 +54,9 @@ AcpToolCallCard::AcpToolCallCard(const AcpProtocol::AcpToolCall &initial, QWidge
     m_titleLabel = new QLabel(this);
     m_titleLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
     m_expandBtn = new QToolButton(this);
-    m_expandBtn->setText(QStringLiteral("▾"));
+    m_expandBtn->setText(QStringLiteral("▸"));
     m_expandBtn->setCheckable(true);
-    m_expandBtn->setChecked(true);
+    m_expandBtn->setChecked(false);
     m_expandBtn->setAutoRaise(true);
 
     header->addWidget(m_statusIcon);
@@ -83,6 +83,10 @@ AcpToolCallCard::AcpToolCallCard(const AcpProtocol::AcpToolCall &initial, QWidge
 
     refreshHeader();
     rerenderBody();
+    // Cards land collapsed by default — the title alone is enough to scan
+    // a turn; click the chevron to read the body. Keeps long transcripts
+    // skimmable without forcing the user to collapse each card by hand.
+    setCollapsed(true);
 }
 
 void AcpToolCallCard::apply(const AcpProtocol::AcpToolCallUpdate &update)

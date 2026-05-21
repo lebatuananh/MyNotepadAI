@@ -75,7 +75,7 @@ AcpMessageWidget::AcpMessageWidget(QString role, QWidget *parent)
         m_thoughtHeader->setText(tr("Thinking…"));
         m_thoughtHeader->setCheckable(true);
         m_thoughtHeader->setChecked(true); // start expanded while streaming
-        m_thoughtHeader->setStyleSheet(QStringLiteral("QToolButton { border: none; font-style: italic; color: palette(mid); }"));
+        m_thoughtHeader->setStyleSheet(QStringLiteral("QToolButton { border: none; font-style: italic; color: palette(placeholder-text); }"));
         m_thoughtHeader->setToolButtonStyle(Qt::ToolButtonTextOnly);
         m_layout->addWidget(m_thoughtHeader);
 

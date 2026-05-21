@@ -21,14 +21,41 @@
 #include "ApplicationSettings.h"
 #include "ui_FolderAsWorkspaceDock.h"
 
+#include <QApplication>
+#include <QCursor>
+#include <QDir>
+#include <QEvent>
 #include <QFileSystemModel>
+#include <QHelpEvent>
+#include <QStyle>
+#include <QTimer>
+#include <QToolTip>
 
 ApplicationSetting<QString> rootPathSetting{"FolderAsWorkspace/RootPath"};
+
+namespace {
+
+class FolderAsWorkspaceFsModel : public QFileSystemModel
+{
+public:
+    using QFileSystemModel::QFileSystemModel;
+
+    QVariant data(const QModelIndex &index, int role) const override
+    {
+        if (role == Qt::ToolTipRole && index.isValid()) {
+            return QDir::toNativeSeparators(filePath(index));
+        }
+        return QFileSystemModel::data(index, role);
+    }
+};
+
+} // namespace
 
 FolderAsWorkspaceDock::FolderAsWorkspaceDock(QWidget *parent) :
     QDockWidget(parent),
     ui(new Ui::FolderAsWorkspaceDock),
-    model(new QFileSystemModel(this))
+    model(new FolderAsWorkspaceFsModel(this)),
+    tooltipTimer(new QTimer(this))
 {
     ui->setupUi(this);
 
@@ -42,6 +69,25 @@ FolderAsWorkspaceDock::FolderAsWorkspaceDock(QWidget *parent) :
             emit fileDoubleClicked(model->filePath(index));
         }
     });
+
+    const int wakeUpDelay = QApplication::style()->styleHint(QStyle::SH_ToolTip_WakeUpDelay);
+    tooltipTimer->setSingleShot(true);
+    tooltipTimer->setInterval(wakeUpDelay > 0 ? wakeUpDelay : 700);
+    connect(tooltipTimer, &QTimer::timeout, this, [this]() {
+        QWidget *viewport = ui->treeView->viewport();
+        const QPoint localPos = viewport->mapFromGlobal(QCursor::pos());
+        const QModelIndex index = ui->treeView->indexAt(localPos);
+        if (!index.isValid() || QPersistentModelIndex(index) != pendingTooltipIndex) {
+            return;
+        }
+        const QString text = model->data(index, Qt::ToolTipRole).toString();
+        if (text.isEmpty()) {
+            return;
+        }
+        QToolTip::showText(QCursor::pos(), text, viewport, ui->treeView->visualRect(index));
+    });
+
+    ui->treeView->viewport()->installEventFilter(this);
 
     ApplicationSettings settings;
     setRootPath(settings.get(rootPathSetting));
@@ -64,4 +110,55 @@ void FolderAsWorkspaceDock::setRootPath(const QString dir)
 QString FolderAsWorkspaceDock::rootPath() const
 {
     return model->rootPath();
+}
+
+bool FolderAsWorkspaceDock::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == ui->treeView->viewport()) {
+        switch (event->type()) {
+        case QEvent::ToolTip: {
+            auto *helpEvent = static_cast<QHelpEvent *>(event);
+            const QModelIndex index = ui->treeView->indexAt(helpEvent->pos());
+
+            if (!index.isValid()) {
+                tooltipTimer->stop();
+                pendingTooltipIndex = QPersistentModelIndex();
+                QToolTip::hideText();
+                return true;
+            }
+
+            const QPersistentModelIndex pIndex(index);
+
+            // Same item we're already tracking (timer running or tooltip shown) — leave it alone.
+            if (pIndex == pendingTooltipIndex) {
+                return true;
+            }
+
+            pendingTooltipIndex = pIndex;
+
+            if (!QToolTip::isVisible() && !tooltipTimer->isActive()) {
+                // No tooltip in flight — Qt has already waited the standard delay,
+                // so show the first one immediately.
+                const QString text = model->data(index, Qt::ToolTipRole).toString();
+                if (!text.isEmpty()) {
+                    QToolTip::showText(helpEvent->globalPos(), text, ui->treeView->viewport(),
+                                       ui->treeView->visualRect(index));
+                }
+            } else {
+                // Switching from one file's tooltip to another — hide and force a fresh wait.
+                QToolTip::hideText();
+                tooltipTimer->start();
+            }
+            return true;
+        }
+        case QEvent::Leave:
+            tooltipTimer->stop();
+            pendingTooltipIndex = QPersistentModelIndex();
+            QToolTip::hideText();
+            break;
+        default:
+            break;
+        }
+    }
+    return QDockWidget::eventFilter(watched, event);
 }

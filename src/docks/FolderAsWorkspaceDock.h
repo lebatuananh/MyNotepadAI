@@ -21,12 +21,14 @@
 #define FOLDERASWORKSPACEDOCK_H
 
 #include <QDockWidget>
+#include <QPersistentModelIndex>
 
 namespace Ui {
 class FolderAsWorkspaceDock;
 }
 
 class QFileSystemModel;
+class QTimer;
 
 class FolderAsWorkspaceDock : public QDockWidget
 {
@@ -42,10 +44,16 @@ public:
 signals:
     void fileDoubleClicked(const QString &filePath);
 
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 private:
     Ui::FolderAsWorkspaceDock *ui;
 
     QFileSystemModel *model;
+
+    QTimer *tooltipTimer;
+    QPersistentModelIndex pendingTooltipIndex;
 };
 
 #endif // FOLDERASWORKSPACEDOCK_H

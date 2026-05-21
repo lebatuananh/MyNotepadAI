@@ -92,3 +92,28 @@ target_sources(test_terminal_selection PRIVATE
     ${CMAKE_SOURCE_DIR}/src/widgets/TerminalCellSource.h
 )
 add_test(NAME TerminalSelection COMMAND test_terminal_selection)
+
+# --- TerminalWidget key routing: regression for Tab/Backtab being swallowed by
+#     QWidget::event() focus traversal before reaching keyPressEvent.
+#     Subclasses TerminalWidget to inspect the routing without starting a PTY. ---
+qt_add_executable(test_terminal_key_routing test_terminal_key_routing.cpp)
+target_include_directories(test_terminal_key_routing PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/widgets
+)
+target_link_libraries(test_terminal_key_routing PRIVATE
+    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test
+    libvterm
+    libptyqt
+)
+target_sources(test_terminal_key_routing PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/widgets/TerminalWidget.cpp
+    ${CMAKE_SOURCE_DIR}/src/widgets/TerminalWidget.h
+    ${CMAKE_SOURCE_DIR}/src/widgets/TerminalCellSource.cpp
+    ${CMAKE_SOURCE_DIR}/src/widgets/TerminalCellSource.h
+    ${CMAKE_SOURCE_DIR}/src/widgets/TerminalColorScheme.cpp
+    ${CMAKE_SOURCE_DIR}/src/widgets/TerminalColorScheme.h
+    ${CMAKE_SOURCE_DIR}/src/widgets/ScrollbackBuffer.cpp
+    ${CMAKE_SOURCE_DIR}/src/widgets/ScrollbackBuffer.h
+)
+add_test(NAME TerminalKeyRouting COMMAND test_terminal_key_routing)

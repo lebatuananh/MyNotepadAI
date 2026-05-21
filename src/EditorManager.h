@@ -41,6 +41,11 @@ public:
 
     void manageEditor(ScintillaNext *editor);
 
+    // Updates the cached dark/light flag and re-applies editor colors to every
+    // managed editor. Called by NotepadNextApplication when the effective theme
+    // changes (and once during startup).
+    void applyTheme(bool dark);
+
 signals:
     void editorCreated(ScintillaNext *editor);
     void editorClosed(ScintillaNext *editor);
@@ -51,8 +56,14 @@ private:
     QList<QPointer<ScintillaNext>> getEditors();
     int detectEOLMode(ScintillaNext *editor) const;
 
+    // initialSetup=true does the destructive styleClearAll pass (only safe on a
+    // freshly-created editor); false preserves per-style foregrounds set by the
+    // active lexer and only overrides backgrounds + chrome colors.
+    void applyThemeToEditor(ScintillaNext *editor, bool dark, bool initialSetup);
+
     QList<QPointer<ScintillaNext>> editors;
     ApplicationSettings *settings;
+    bool darkTheme = false;
 };
 
 #endif // EDITORMANAGER_H

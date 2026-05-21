@@ -299,9 +299,6 @@ void NotepadNextApplication::setEditorLanguage(ScintillaNext *editor, const QStr
     editor->setILexer((sptr_t) lexerInstance);
     editor->clearDocumentStyle(); // Remove all previous style information, setting the lexer does not guarantee styling information is cleared
 
-    // Not ideal this has to be manually emitted but it works since setILexer() is not widely used
-    emit editor->lexerChanged();
-
     // Dynamic properties can be used to skip part of the default initialization. The value in the
     // property doesn't currently matter, but may be used at a later point.
     bool skipTabs = editor->QObject::property("nn_skip_usetabs").isValid();
@@ -311,6 +308,11 @@ void NotepadNextApplication::setEditorLanguage(ScintillaNext *editor, const QStr
     getLuaState()->setVariable("skip_tabwidth", skipTabWidth);
 
     getLuaState()->execute("SetLanguage(languageName)");
+
+    // Emitted after SetLanguage so listeners (notably EditorManager's theme
+    // re-skin) see the fully-populated lexer styles. Manual emit because
+    // setILexer() doesn't trigger one.
+    emit editor->lexerChanged();
 }
 
 QString NotepadNextApplication::detectLanguage(ScintillaNext *editor) const
@@ -548,6 +550,8 @@ void NotepadNextApplication::applyTheme()
     }
 
     setPalette(palette);
+
+    editorManager->applyTheme(dark);
 
     emit effectiveThemeChanged();
 }

@@ -609,6 +609,22 @@ void TerminalWidget::scrollContentsBy(int dx, int dy)
     viewport()->update();
 }
 
+bool TerminalWidget::event(QEvent *event)
+{
+    // Qt routes Tab/Backtab through focusNextPrevChild() in QWidget::event(),
+    // so they never reach keyPressEvent unless we intercept here.
+    if (event->type() == QEvent::KeyPress) {
+        QKeyEvent *ke = static_cast<QKeyEvent *>(event);
+        if (ke->key() == Qt::Key_Tab || ke->key() == Qt::Key_Backtab) {
+            keyPressEvent(ke);
+            if (ke->isAccepted()) {
+                return true;
+            }
+        }
+    }
+    return QAbstractScrollArea::event(event);
+}
+
 void TerminalWidget::keyPressEvent(QKeyEvent *event)
 {
     if (!m_vt || !m_pty) {
@@ -644,6 +660,7 @@ void TerminalWidget::keyPressEvent(QKeyEvent *event)
     case Qt::Key_Enter:    sendKey(VTERM_KEY_ENTER); return;
     case Qt::Key_Backspace: sendKey(VTERM_KEY_BACKSPACE); return;
     case Qt::Key_Tab:       sendKey(VTERM_KEY_TAB); return;
+    case Qt::Key_Backtab:   sendKey(VTERM_KEY_TAB); return;
     case Qt::Key_Escape:    sendKey(VTERM_KEY_ESCAPE); return;
     case Qt::Key_Up:        sendKey(VTERM_KEY_UP); return;
     case Qt::Key_Down:      sendKey(VTERM_KEY_DOWN); return;

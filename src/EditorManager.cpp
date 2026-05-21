@@ -182,11 +182,6 @@ void EditorManager::setupEditor(ScintillaNext *editor)
     editor->clearCmdKey(SCK_INSERT);
 
     editor->setFoldMarkers(QStringLiteral("box"));
-    for (int i = SC_MARKNUM_FOLDEREND; i <= SC_MARKNUM_FOLDEROPEN; ++i) {
-        editor->markerSetFore(i, 0xF3F3F3);
-        editor->markerSetBack(i, 0x808080);
-        editor->markerSetBackSelected(i, 0x0000FF);
-    }
 
     editor->setIdleStyling(SC_IDLESTYLING_TOVISIBLE);
     editor->setEndAtLastLine(false);
@@ -204,7 +199,6 @@ void EditorManager::setupEditor(ScintillaNext *editor)
     editor->setMarginWidthN(2, 14);
 
     editor->markerDefine(MARK_HIDELINESUNDERLINE, SC_MARK_UNDERLINE);
-    editor->markerSetBack(MARK_HIDELINESUNDERLINE, 0x77CC77);
 
     editor->markerDefine(MARK_HIDELINESBEGIN, SC_MARK_ARROW);
     editor->markerDefine(MARK_HIDELINESEND, SC_MARK_ARROWDOWN);
@@ -223,31 +217,7 @@ void EditorManager::setupEditor(ScintillaNext *editor)
     editor->setCaretLineVisibleAlways(true);
     editor->setCaretWidth(2);
 
-    editor->setEdgeColour(0x80FFFF);
-
-    // https://www.scintilla.org/ScintillaDoc.html#ElementColours
-    // SC_ELEMENT_SELECTION_TEXT
-    // SC_ELEMENT_SELECTION_BACK
-    // SC_ELEMENT_SELECTION_ADDITIONAL_TEXT
-    // SC_ELEMENT_SELECTION_ADDITIONAL_BACK
-    // SC_ELEMENT_SELECTION_SECONDARY_TEXT
-    // SC_ELEMENT_SELECTION_SECONDARY_BACK
-    // SC_ELEMENT_SELECTION_INACTIVE_TEXT
-    editor->setElementColour(SC_ELEMENT_SELECTION_INACTIVE_BACK, 0xFFE0E0E0);
-    // SC_ELEMENT_CARET
-    // SC_ELEMENT_CARET_ADDITIONAL
-    editor->setElementColour(SC_ELEMENT_CARET_LINE_BACK, 0xFFFFE8E8);
-    editor->setElementColour(SC_ELEMENT_WHITE_SPACE, 0xFFD0D0D0);
-    // SC_ELEMENT_WHITE_SPACE_BACK
-    // SC_ELEMENT_HOT_SPOT_ACTIVE
-    // SC_ELEMENT_HOT_SPOT_ACTIVE_BACK
-    editor->setElementColour(SC_ELEMENT_FOLD_LINE, 0xFFA0A0A0);
-    // SC_ELEMENT_HIDDEN_LINE
-
     editor->setWhitespaceSize(2);
-
-    editor->setFoldMarginColour(true, 0xFFFFFF);
-    editor->setFoldMarginHiColour(true, 0xE9E9E9);
 
     editor->setAutomaticFold(SC_AUTOMATICFOLD_SHOW | SC_AUTOMATICFOLD_CLICK | SC_AUTOMATICFOLD_CHANGE);
     editor->markerEnableHighlight(true);
@@ -255,28 +225,15 @@ void EditorManager::setupEditor(ScintillaNext *editor)
     editor->setCharsDefault();
     editor->setWordChars(editor->wordChars() + settings->additionalWordChars().toLatin1());
 
-    editor->styleSetFore(STYLE_DEFAULT, 0x000000);
-    editor->styleSetBack(STYLE_DEFAULT, 0xFFFFFF);
-    editor->styleSetSize(STYLE_DEFAULT, settings->fontSize());
-    editor->styleSetFont(STYLE_DEFAULT, settings->fontName().toUtf8().data());
-    editor->styleClearAll();
+    applyThemeToEditor(editor, darkTheme, /*initialSetup=*/true);
 
-    editor->styleSetFore(STYLE_LINENUMBER, 0x808080);
-    editor->styleSetBack(STYLE_LINENUMBER, 0xE4E4E4);
-    editor->styleSetBold(STYLE_LINENUMBER, false);
-
-    editor->styleSetFore(STYLE_BRACELIGHT, 0x0000FF);
-    editor->styleSetBack(STYLE_BRACELIGHT, 0xFFFFFF);
-
-    editor->styleSetFore(STYLE_BRACEBAD, 0x000080);
-    editor->styleSetBack(STYLE_BRACEBAD, 0xFFFFFF);
-
-    editor->styleSetFore(STYLE_INDENTGUIDE, 0xC0C0C0);
-    editor->styleSetBack(STYLE_INDENTGUIDE, 0xFFFFFF);
-
-    // STYLE_CONTROLCHAR
-    // STYLE_CALLTIP
-    // STYLE_FOLDDISPLAYTEXT
+    // Lua's SetLanguage writes per-style fore/back from the language definition,
+    // which hardcodes white backgrounds. Re-skin after the language is fully
+    // applied (lexerChanged is emitted *after* SetLanguage from
+    // NotepadNextApplication::setEditorLanguage) so dark mode survives.
+    connect(editor, &ScintillaNext::lexerChanged, this, [this, editor]() {
+        applyThemeToEditor(editor, darkTheme, /*initialSetup=*/false);
+    });
 
     editor->setViewWS(settings->showWhitespace() ? SCWS_VISIBLEALWAYS : SCWS_INVISIBLE);
     editor->setViewEOL(settings->showEndOfLine());
@@ -332,6 +289,87 @@ void EditorManager::setupEditor(ScintillaNext *editor)
     bm->setEnabled(true);
 
     new HTMLAutoCompleteDecorator(editor);
+}
+
+void EditorManager::applyTheme(bool dark)
+{
+    darkTheme = dark;
+
+    for (auto &editor : getEditors()) {
+        applyThemeToEditor(editor, dark, /*initialSetup=*/false);
+    }
+}
+
+void EditorManager::applyThemeToEditor(ScintillaNext *editor, bool dark, bool initialSetup)
+{
+    // Scintilla colors are 0xBBGGRR; setElementColour takes 0xAABBGGRR.
+    const int defaultFore     = dark ? 0xD4D4D4 : 0x000000;
+    const int defaultBack     = dark ? 0x1E1E1E : 0xFFFFFF;
+    const int lineNumberFore  = dark ? 0x858585 : 0x808080;
+    const int lineNumberBack  = dark ? 0x252526 : 0xE4E4E4;
+    const int braceLightFore  = dark ? 0x00A5FF : 0x0000FF;
+    const int braceBadFore    = dark ? 0x4040FF : 0x000080;
+    const int indentGuideFore = dark ? 0x404040 : 0xC0C0C0;
+    const int foldMarginColour   = dark ? 0x252526 : 0xFFFFFF;
+    const int foldMarginHiColour = dark ? 0x2D2D30 : 0xE9E9E9;
+    const int foldMarkerFore = dark ? 0x1E1E1E : 0xF3F3F3;
+    const int foldMarkerBack = dark ? 0xB0B0B0 : 0x808080;
+    const int edgeColour     = dark ? 0x404040 : 0x80FFFF;
+    const int hideLinesUnderlineBack = dark ? 0x4D9D4D : 0x77CC77;
+
+    const unsigned int caretLineBack   = dark ? 0xFF2E2D2AU : 0xFFFFE8E8U;
+    const unsigned int selInactiveBack = dark ? 0xFF504030U : 0xFFE0E0E0U;
+    const unsigned int whiteSpaceFore  = dark ? 0xFF606060U : 0xFFD0D0D0U;
+    const unsigned int foldLine        = dark ? 0xFF5A5A5AU : 0xFFA0A0A0U;
+
+    editor->styleSetFore(STYLE_DEFAULT, defaultFore);
+    editor->styleSetBack(STYLE_DEFAULT, defaultBack);
+    editor->styleSetSize(STYLE_DEFAULT, settings->fontSize());
+    editor->styleSetFont(STYLE_DEFAULT, settings->fontName().toUtf8().data());
+
+    if (initialSetup) {
+        // Propagate the default style to all other styles. Destructive — only
+        // safe before a lexer's Lua SetStyle runs.
+        editor->styleClearAll();
+    } else {
+        // Lexer styles already carry meaningful foregrounds; only force the
+        // background so dark mode is preserved.
+        for (int i = 0; i <= STYLE_MAX; ++i) {
+            editor->styleSetBack(i, defaultBack);
+        }
+    }
+
+    editor->styleSetFore(STYLE_LINENUMBER, lineNumberFore);
+    editor->styleSetBack(STYLE_LINENUMBER, lineNumberBack);
+    editor->styleSetBold(STYLE_LINENUMBER, false);
+
+    editor->styleSetFore(STYLE_BRACELIGHT, braceLightFore);
+    editor->styleSetBack(STYLE_BRACELIGHT, defaultBack);
+
+    editor->styleSetFore(STYLE_BRACEBAD, braceBadFore);
+    editor->styleSetBack(STYLE_BRACEBAD, defaultBack);
+
+    editor->styleSetFore(STYLE_INDENTGUIDE, indentGuideFore);
+    editor->styleSetBack(STYLE_INDENTGUIDE, defaultBack);
+
+    for (int i = SC_MARKNUM_FOLDEREND; i <= SC_MARKNUM_FOLDEROPEN; ++i) {
+        editor->markerSetFore(i, foldMarkerFore);
+        editor->markerSetBack(i, foldMarkerBack);
+        editor->markerSetBackSelected(i, 0x0000FF);
+    }
+
+    editor->markerSetBack(MARK_HIDELINESUNDERLINE, hideLinesUnderlineBack);
+
+    editor->setEdgeColour(edgeColour);
+
+    // https://www.scintilla.org/ScintillaDoc.html#ElementColours
+    editor->setElementColour(SC_ELEMENT_SELECTION_INACTIVE_BACK, selInactiveBack);
+    editor->setElementColour(SC_ELEMENT_CARET_LINE_BACK, caretLineBack);
+    editor->setElementColour(SC_ELEMENT_WHITE_SPACE, whiteSpaceFore);
+    editor->setElementColour(SC_ELEMENT_FOLD_LINE, foldLine);
+
+    editor->setFoldMarginColour(true, foldMarginColour);
+    editor->setFoldMarginHiColour(true, foldMarginHiColour);
 }
 
 void EditorManager::purgeOldEditorPointers()

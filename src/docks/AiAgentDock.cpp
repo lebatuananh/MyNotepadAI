@@ -72,6 +72,9 @@ void AiAgentDock::wireConnectionSignals()
         connect(m_view, &AcpSessionView::retryRequested,
                 this, &AiAgentDock::onRetryFromView,
                 Qt::UniqueConnection);
+        connect(m_view, &AcpSessionView::restartSessionRequested,
+                this, &AiAgentDock::onRestartFromView,
+                Qt::UniqueConnection);
     }
 }
 
@@ -94,6 +97,28 @@ void AiAgentDock::onRetryFromView()
     }
     // Non-exit retries (auth flow) are still consumed by retryRequested but
     // not handled here yet — auth retry would be wired in by future work.
+}
+
+void AiAgentDock::onRestartFromView()
+{
+    // Mirror closeEvent's safety net: a restart is destructive to the running
+    // turn, so confirm if the agent is mid-prompt. The manager tears down the
+    // old connection during rebind, which would cancel the in-flight call.
+    if (m_model && m_model->isProcessing()) {
+        const QMessageBox::StandardButton choice = QMessageBox::question(
+            this,
+            tr("AI Agent"),
+            tr("A prompt is still running. Restart the session anyway?"),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No);
+        if (choice != QMessageBox::Yes) {
+            return;
+        }
+        if (m_connection) {
+            m_connection->cancelPrompt();
+        }
+    }
+    emit restartRequested(m_sessionId);
 }
 
 void AiAgentDock::rebind(AcpConnection *connection,

@@ -20,6 +20,7 @@
 #define ACP_MESSAGE_WIDGET_H
 
 #include <QFrame>
+#include <QPixmap>
 #include <QString>
 #include <QVector>
 
@@ -69,9 +70,17 @@ private:
     bool m_collapsed = false;
 
     QTextBrowser *m_browser = nullptr;     // assistant + non-thought rendered widgets
-    QLabel *m_userLabel = nullptr;         // user role
     QToolButton *m_thoughtHeader = nullptr; // thought role
     QVBoxLayout *m_layout = nullptr;
+
+    // User role: image thumbnails kept alongside their original pixmap so we
+    // can rescale to bubble width on resize without quality loss.
+    struct UserImage { QLabel *label; QPixmap original; };
+    QVector<UserImage> m_userImages;
+    QVector<QWidget *> m_userBlocks; // text labels + image labels, in block order
+
+    void clearUserBlocks();
+    void rescaleUserImages();
 };
 
 #endif // ACP_MESSAGE_WIDGET_H

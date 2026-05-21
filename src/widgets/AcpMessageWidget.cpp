@@ -18,7 +18,9 @@
 
 #include "AcpMessageWidget.h"
 
+#include <QImage>
 #include <QLabel>
+#include <QPixmap>
 #include <QResizeEvent>
 #include <QScrollBar>
 #include <QTextBrowser>
@@ -66,10 +68,8 @@ AcpMessageWidget::AcpMessageWidget(QString role, QWidget *parent)
     m_layout->setSpacing(2);
 
     if (m_role == QLatin1String("user")) {
-        m_userLabel = new QLabel(this);
-        m_userLabel->setWordWrap(true);
-        m_userLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-        m_layout->addWidget(m_userLabel);
+        // User-role children are built lazily in setContent() so we can render
+        // a sequence of text blocks + image thumbnails in their original order.
     } else if (m_role == QLatin1String("thought")) {
         m_thoughtHeader = new QToolButton(this);
         m_thoughtHeader->setText(tr("Thinking…"));
@@ -107,6 +107,49 @@ void AcpMessageWidget::appendChunk(const QString &chunk)
 
 void AcpMessageWidget::setContent(const QVector<AcpProtocol::AcpContentBlock> &content)
 {
+    if (m_role == QLatin1String("user")) {
+        clearUserBlocks();
+        QString plainJoined;
+        QLabel *pendingTextLabel = nullptr;
+        for (const auto &block : content) {
+            if (block.kind == AcpProtocol::AcpContentBlock::Kind::Text) {
+                if (!pendingTextLabel) {
+                    pendingTextLabel = new QLabel(this);
+                    pendingTextLabel->setWordWrap(true);
+                    pendingTextLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+                    m_layout->addWidget(pendingTextLabel);
+                    m_userBlocks.append(pendingTextLabel);
+                }
+                const QString existing = pendingTextLabel->text();
+                pendingTextLabel->setText(existing + block.text);
+                plainJoined += block.text;
+            } else {
+                pendingTextLabel = nullptr; // images break a text run
+                QPixmap pix;
+                if (!block.imageData.isEmpty() && pix.loadFromData(block.imageData)) {
+                    auto *imgLabel = new QLabel(this);
+                    imgLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+                    imgLabel->setTextInteractionFlags(Qt::NoTextInteraction);
+                    m_layout->addWidget(imgLabel);
+                    m_userBlocks.append(imgLabel);
+                    m_userImages.append({imgLabel, pix});
+                    plainJoined += QStringLiteral("[image]");
+                } else {
+                    // Decode failed — fall back to a muted placeholder so the
+                    // block isn't silently dropped.
+                    auto *fb = new QLabel(tr("[image]"), this);
+                    fb->setStyleSheet(QStringLiteral("QLabel { color: palette(placeholder-text); font-style: italic; }"));
+                    m_layout->addWidget(fb);
+                    m_userBlocks.append(fb);
+                    plainJoined += QStringLiteral("[image]");
+                }
+            }
+        }
+        m_text = plainJoined;
+        rescaleUserImages();
+        return;
+    }
+
     QString joined;
     for (const auto &block : content) {
         if (block.kind == AcpProtocol::AcpContentBlock::Kind::Text) {
@@ -119,10 +162,42 @@ void AcpMessageWidget::setContent(const QVector<AcpProtocol::AcpContentBlock> &c
     rerender();
 }
 
+void AcpMessageWidget::clearUserBlocks()
+{
+    for (QWidget *w : m_userBlocks) {
+        if (w) {
+            m_layout->removeWidget(w);
+            w->deleteLater();
+        }
+    }
+    m_userBlocks.clear();
+    m_userImages.clear();
+}
+
+void AcpMessageWidget::rescaleUserImages()
+{
+    if (m_userImages.isEmpty()) return;
+    int marginL = 0, marginT = 0, marginR = 0, marginB = 0;
+    if (m_layout) {
+        m_layout->getContentsMargins(&marginL, &marginT, &marginR, &marginB);
+    }
+    const int avail = width() - marginL - marginR;
+    if (avail <= 0) return;
+    constexpr int kMaxThumbHeight = 240;
+    for (const auto &ui : m_userImages) {
+        if (!ui.label || ui.original.isNull()) continue;
+        const QSize natural = ui.original.size();
+        int targetW = qMin(natural.width(), avail);
+        QPixmap scaled = ui.original.scaled(targetW, kMaxThumbHeight,
+                                            Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        ui.label->setPixmap(scaled);
+    }
+}
+
 void AcpMessageWidget::rerender()
 {
-    if (m_userLabel) {
-        m_userLabel->setText(m_text);
+    if (m_role == QLatin1String("user")) {
+        // User content is rendered directly in setContent() — block-by-block.
         return;
     }
     if (!m_browser) return;
@@ -174,6 +249,7 @@ void AcpMessageWidget::resizeEvent(QResizeEvent *event)
 {
     QFrame::resizeEvent(event);
     refitBrowserHeight();
+    rescaleUserImages();
 }
 
 void AcpMessageWidget::markStreamingDone()

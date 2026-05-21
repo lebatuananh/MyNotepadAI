@@ -151,6 +151,15 @@ void AcpSessionView::buildUi()
         clearBanner();
         emit retryRequested();
     });
+    m_bannerRestart = new QToolButton(m_banner);
+    m_bannerRestart->setText(tr("Restart"));
+    m_bannerRestart->setAutoRaise(true);
+    m_bannerRestart->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    m_bannerRestart->setToolTip(tr("Restart this ACP session"));
+    m_bannerRestart->setStyleSheet(QStringLiteral(
+        "QToolButton { color: palette(placeholder-text); padding: 1px 6px; border: 1px solid transparent; border-radius: 3px; }"
+        "QToolButton:hover { color: palette(text); border: 1px solid palette(mid); }"));
+    connect(m_bannerRestart, &QToolButton::clicked, this, &AcpSessionView::restartSessionRequested);
     m_bannerDebug = new QToolButton(m_banner);
     m_bannerDebug->setText(tr("Debug"));
     m_bannerDebug->setAutoRaise(true);
@@ -163,6 +172,7 @@ void AcpSessionView::buildUi()
     banL->addWidget(m_bannerLabel, 1);
     banL->addStretch();
     banL->addWidget(m_bannerRetry);
+    banL->addWidget(m_bannerRestart);
     banL->addWidget(m_bannerDebug);
     // The banner stays visible at all times so the Debug button is always
     // reachable — even when there's no error to surface. clearBanner() hides

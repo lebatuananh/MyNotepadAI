@@ -85,6 +85,7 @@ private slots:
     void onMetadataChanged();
     void onAgentExited(int exitCode, QProcess::ExitStatus status);
     void onRetryFromView();
+    void onRestartFromView();
 
 private:
     void refreshTitle();

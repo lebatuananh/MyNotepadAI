@@ -88,6 +88,7 @@ private slots:
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
+    void changeEvent(QEvent *event) override;
 
 private slots:
     void onMessageAppended(int idx);
@@ -117,6 +118,7 @@ private slots:
 private:
     void buildUi();
     void wireSignals();
+    void rebuildAttachIcon();
     void hydrateFromModel();
     void appendMessageWidget(int idx);
     // Insert a widget into the transcript timeline at the tail, just above

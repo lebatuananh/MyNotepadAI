@@ -28,6 +28,7 @@
 #include "AcpToolCallCard.h"
 #include "AcpUsageIndicator.h"
 
+#include <QBuffer>
 #include <QCheckBox>
 #include <QClipboard>
 #include <QComboBox>
@@ -37,9 +38,14 @@
 #include <QFrame>
 #include <QGuiApplication>
 #include <QHBoxLayout>
+#include <QIcon>
+#include <QImage>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QMimeData>
+#include <QPainter>
+#include <QPalette>
+#include <QPixmap>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QResizeEvent>
@@ -56,6 +62,29 @@ namespace {
 // bottom". Used both for the user's at-bottom recognition (the flag flips on
 // when they reach this band) and for the programmatic scroll target.
 constexpr int kAtBottomEpsilonPx = 8;
+
+// SVG icons that use stroke="currentColor" resolve to opaque black under Qt's
+// svg icon engine, so they vanish on dark backgrounds. Re-render the icon at
+// the sizes Qt is likely to ask for and tint each pixmap via SourceIn so the
+// alpha (the strokes) is preserved while the rgb becomes the palette color.
+QIcon tintedIcon(const QString &svgPath, const QColor &color)
+{
+    QIcon source(svgPath);
+    if (source.isNull()) return source;
+
+    QIcon dst;
+    const QList<int> sizes{16, 20, 22, 24, 32, 48, 64};
+    for (int sz : sizes) {
+        QPixmap pm = source.pixmap(sz, sz);
+        if (pm.isNull()) continue;
+        QPainter p(&pm);
+        p.setCompositionMode(QPainter::CompositionMode_SourceIn);
+        p.fillRect(pm.rect(), color);
+        p.end();
+        dst.addPixmap(pm);
+    }
+    return dst;
+}
 
 // Custom QPlainTextEdit that submits on Enter (Shift+Enter for newline) and
 // forwards image pastes/drops to the AcpImageAttachmentList.
@@ -95,7 +124,17 @@ protected:
                 }
             }
             if (source->hasImage()) {
-                const QByteArray raw = source->data(QStringLiteral("image/png"));
+                // Snipping Tool / Print Screen put a raw bitmap on the clipboard,
+                // not PNG bytes — fall back to the QImage payload and re-encode.
+                QByteArray raw = source->data(QStringLiteral("image/png"));
+                if (raw.isEmpty()) {
+                    const QImage img = qvariant_cast<QImage>(source->imageData());
+                    if (!img.isNull()) {
+                        QBuffer buf(&raw);
+                        buf.open(QIODevice::WriteOnly);
+                        img.save(&buf, "PNG");
+                    }
+                }
                 if (!raw.isEmpty()) {
                     m_attachments->tryAddImage(raw, QObject::tr("pasted.png"));
                 }
@@ -293,18 +332,19 @@ void AcpSessionView::buildUi()
     outer->addWidget(m_input);
 
     // 7. Button row + usage. Attach is a secondary chrome action — render it
-    // as a flat tool-button so Send remains the only prominent button.
+    // as an icon-only flat tool-button so Send remains the only prominent
+    // button and the row stays compact.
     auto *btnRow = new QHBoxLayout();
     btnRow->setContentsMargins(0, 0, 0, 0);
     btnRow->setSpacing(4);
     m_attachBtn = new QToolButton(this);
-    m_attachBtn->setText(tr("Attach"));
     m_attachBtn->setAutoRaise(true);
-    m_attachBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    m_attachBtn->setToolTip(tr("Attach an image"));
+    m_attachBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    m_attachBtn->setToolTip(tr("Attach an image (or paste from clipboard)"));
     m_attachBtn->setStyleSheet(QStringLiteral(
-        "QToolButton { color: palette(placeholder-text); padding: 4px 10px; border: 1px solid transparent; border-radius: 3px; }"
+        "QToolButton { color: palette(placeholder-text); padding: 4px; border: 1px solid transparent; border-radius: 3px; }"
         "QToolButton:hover { color: palette(text); border: 1px solid palette(mid); }"));
+    rebuildAttachIcon();
     m_cancelBtn = new QPushButton(tr("Cancel"), this);
     m_sendBtn = new QPushButton(tr("Send"), this);
     m_cancelBtn->setEnabled(false);
@@ -1143,6 +1183,27 @@ bool AcpSessionView::eventFilter(QObject *watched, QEvent *event)
         positionJumpButton();
     }
     return QWidget::eventFilter(watched, event);
+}
+
+void AcpSessionView::changeEvent(QEvent *event)
+{
+    QWidget::changeEvent(event);
+    switch (event->type()) {
+    case QEvent::PaletteChange:
+    case QEvent::StyleChange:
+    case QEvent::ApplicationPaletteChange:
+        rebuildAttachIcon();
+        break;
+    default:
+        break;
+    }
+}
+
+void AcpSessionView::rebuildAttachIcon()
+{
+    if (!m_attachBtn) return;
+    m_attachBtn->setIcon(tintedIcon(QStringLiteral(":/icons/paperclip.svg"),
+                                    palette().color(QPalette::WindowText)));
 }
 
 bool AcpSessionView::inputKeyEventIsSubmit(QKeyEvent *ke) const

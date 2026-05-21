@@ -45,6 +45,7 @@
 #include <QStyle>
 #include <QStyleFactory>
 #include <QStyleHints>
+#include <QUuid>
 
 #ifdef Q_OS_WIN
 #include <Windows.h>
@@ -64,7 +65,8 @@ void parseCommandLine(QCommandLineParser &parser, const QStringList &args)
         {"translation", "Overrides the system default translation.", "translation"},
         {"reset-settings", "Resets all application settings."},
         {"n", "Places the cursor on the line number for the first file specified", "line number"},
-        {"workspace", "Opens the specified folder as a workspace", "workspace path"}
+        {"workspace", "Opens the specified folder as a workspace", "workspace path"},
+        {"new-window", "Forces a fresh independent window instead of forwarding to an existing instance"}
     });
 
     parser.process(args);
@@ -76,8 +78,21 @@ static QString toLocalFileName(const QString file)
     return fileUrl.isValid() && fileUrl.isLocalFile() ? fileUrl.toLocalFile() : file;
 }
 
+// Detect --new-window from raw argv before SingleApplication runs its primary-instance
+// check. When set we hand the base ctor a unique userData so this process gets its own
+// block-server identity and isn't intercepted as a secondary of the existing instance.
+static QString detectNewWindowUserData(int argc, char **argv)
+{
+    for (int i = 1; i < argc; ++i) {
+        if (qstrcmp(argv[i], "--new-window") == 0 || qstrcmp(argv[i], "-new-window") == 0) {
+            return QUuid::createUuid().toString(QUuid::WithoutBraces);
+        }
+    }
+    return {};
+}
+
 NotepadNextApplication::NotepadNextApplication(int &argc, char **argv)
-    : SingleApplication(argc, argv, true, opts)
+    : SingleApplication(argc, argv, true, opts, 1000, detectNewWindowUserData(argc, argv))
 {
 #ifdef Q_OS_WIN
     // Create a system-wide mutex so the installer can detect if it is running
@@ -206,7 +221,9 @@ bool NotepadNextApplication::init()
         }
     });
 
-    if (settings->restorePreviousSession()) {
+    const bool isNewWindow = parser.isSet("new-window");
+
+    if (!isNewWindow && settings->restorePreviousSession()) {
         qInfo("Restoring previous session");
 
         sessionManager->loadSession(window);
@@ -521,14 +538,18 @@ MainWindow *NotepadNextApplication::createNewWindow()
         LuaExtension::Instance().setEditor(editor);
     });
 
-    // TODO: this shouldn't be dependent on a MainWindow closing, but this works for now
-    // since the assumption is MainWindow::aboutToClose() infers the application is shutting
-    // down but the editors are still active.
-    connect(window, &MainWindow::aboutToClose, this, &NotepadNextApplication::saveSession);
+    // --new-window instances are ephemeral wrt session — skip both close-time and
+    // autosave persistence so they can't overwrite the parent instance's session.
+    if (!parser.isSet("new-window")) {
+        // TODO: this shouldn't be dependent on a MainWindow closing, but this works for now
+        // since the assumption is MainWindow::aboutToClose() infers the application is shutting
+        // down but the editors are still active.
+        connect(window, &MainWindow::aboutToClose, this, &NotepadNextApplication::saveSession);
 
-    // Timer to autosave the session
-    connect(&autoSaveTimer, &QTimer::timeout, this, &NotepadNextApplication::saveSession);
-    autoSaveTimer.start(60 * 1000);
+        // Timer to autosave the session
+        connect(&autoSaveTimer, &QTimer::timeout, this, &NotepadNextApplication::saveSession);
+        autoSaveTimer.start(60 * 1000);
+    }
 
     return window;
 }

@@ -381,6 +381,11 @@ void AcpSessionModel::onMessageChunk(const QString &text)
 void AcpSessionModel::onThoughtChunk(const QString &text)
 {
     if (m_streamingThoughtMessageIndex < 0) {
+        // Symmetric to onMessageChunk closing any active thought: when a new
+        // thought stream begins, close any active assistant text stream so the
+        // next text chunk opens a fresh bubble below this thought.
+        m_streamingAssistantMessageIndex = -1;
+
         AcpMessage msg;
         msg.role = QStringLiteral("thought");
         msg.timestamp = QDateTime::currentMSecsSinceEpoch();
@@ -418,6 +423,12 @@ void AcpSessionModel::onThoughtChunk(const QString &text)
 
 void AcpSessionModel::onToolCallReceived(const AcpToolCall &tc)
 {
+    // A tool-call card is a new timeline peer — close any active streaming
+    // assistant text or thought so a subsequent text/thought chunk opens a
+    // fresh bubble below the card instead of merging into the previous one.
+    m_streamingAssistantMessageIndex = -1;
+    m_streamingThoughtMessageIndex = -1;
+
     AcpToolCall copy = tc;
     copy.groupId = m_currentGroupId;
     m_toolCalls.insert(copy.id, copy);
@@ -438,6 +449,11 @@ void AcpSessionModel::onToolCallUpdated(const AcpToolCallUpdate &update)
     if (it == m_toolCalls.end()) {
         // Treat as a new entry — defensive in case updates outrun the
         // initial tool_call. We still want it in the timeline.
+        // Also close any active streaming text/thought, since this branch
+        // adds a fresh timeline peer (same rule as onToolCallReceived).
+        m_streamingAssistantMessageIndex = -1;
+        m_streamingThoughtMessageIndex = -1;
+
         AcpToolCall tc;
         tc.id = update.id;
         if (update.status.has_value()) {

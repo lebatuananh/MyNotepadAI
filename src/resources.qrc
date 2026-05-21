@@ -46,5 +46,6 @@
         <file>icons/cross.svg</file>
         <file>icons/plus.svg</file>
         <file>icons/list_with_icons.svg</file>
+        <file>icons/paperclip.svg</file>
     </qresource>
 </RCC>

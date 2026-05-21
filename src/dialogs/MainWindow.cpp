@@ -1350,9 +1350,22 @@ void MainWindow::openFile(const QString &filePath)
 
 void MainWindow::openFolderAsWorkspaceDialog()
 {
-    QString dir = QFileDialog::getExistingDirectory(this, tr("Open Folder as Workspace"), defaultDirectoryManager->getDefaultDirectory(), QFileDialog::ShowDirsOnly);
+    const QString dir = QFileDialog::getExistingDirectory(this, tr("Open Folder as Workspace"), defaultDirectoryManager->getDefaultDirectory(), QFileDialog::ShowDirsOnly);
 
-    setFolderAsWorkspacePath(dir);
+    if (dir.isEmpty())
+        return;
+
+    // Launch a fresh, independent window for the chosen workspace instead of
+    // overwriting the current one. --new-window gives the spawned process its
+    // own SingleApplication primary identity so it isn't intercepted as a
+    // secondary of this instance.
+    const QString program = QCoreApplication::applicationFilePath();
+    const QStringList args{QStringLiteral("--new-window"),
+                           QStringLiteral("--workspace"), dir};
+
+    if (!QProcess::startDetached(program, args)) {
+        qWarning("Failed to launch new window for workspace: %s", qUtf8Printable(dir));
+    }
 }
 
 void MainWindow::setFolderAsWorkspacePath(const QString &dir)

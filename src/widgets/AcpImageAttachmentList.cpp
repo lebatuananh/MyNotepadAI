@@ -23,6 +23,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QFontMetrics>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMimeData>
@@ -163,7 +164,7 @@ void AcpImageAttachmentList::rebuildLayout()
             auto *itemWidget = new QWidget(this);
             auto *vl = new QVBoxLayout(itemWidget);
             vl->setContentsMargins(2, 2, 2, 2);
-            vl->setSpacing(2);
+            vl->setSpacing(4);
 
             auto *thumb = new QLabel(itemWidget);
             QPixmap pix;
@@ -180,18 +181,40 @@ void AcpImageAttachmentList::rebuildLayout()
             const QFontMetrics fm(nameLabel->font());
             nameLabel->setText(fm.elidedText(item.fileName, Qt::ElideMiddle, 80));
             nameLabel->setToolTip(item.fileName);
+            nameLabel->setAlignment(Qt::AlignHCenter);
 
             auto *sizeLabel = new QLabel(humanSize(item.data.size()), itemWidget);
-            sizeLabel->setStyleSheet(QStringLiteral("color: palette(mid);"));
+            sizeLabel->setStyleSheet(QStringLiteral("color: palette(placeholder-text);"));
+            sizeLabel->setAlignment(Qt::AlignHCenter);
 
+            // Overlay remove button — small circular pill anchored to the
+            // thumbnail's top-right corner. The thumb is over an arbitrary
+            // image, so palette chrome doesn't apply: a semi-transparent
+            // black pill with a white glyph reads on any image.
             auto *removeBtn = new QToolButton(itemWidget);
             removeBtn->setText(QStringLiteral("×"));
             removeBtn->setToolTip(tr("Remove"));
-            const int capturedIndex = i;
-            connect(removeBtn, &QToolButton::clicked, this, [this, capturedIndex]() {
-                // Search by widget pointer since indices may shift.
-                // capturedIndex was the position at construction; we re-resolve.
-                Q_UNUSED(capturedIndex);
+            removeBtn->setFixedSize(18, 18);
+            removeBtn->setCursor(Qt::PointingHandCursor);
+            removeBtn->setFocusPolicy(Qt::NoFocus);
+            removeBtn->setStyleSheet(QStringLiteral(
+                "QToolButton {"
+                "  background: rgba(0,0,0,0.55);"
+                "  color: white;"
+                "  border: 1px solid rgba(255,255,255,0.25);"
+                "  border-radius: 9px;"
+                "  padding: 0 0 2px 0;"
+                "  font-size: 12px;"
+                "  font-weight: bold;"
+                "}"
+                "QToolButton:hover {"
+                "  background: rgba(0,0,0,0.78);"
+                "  border-color: rgba(255,255,255,0.45);"
+                "}"
+                "QToolButton:pressed {"
+                "  background: rgba(0,0,0,0.92);"
+                "}"));
+            connect(removeBtn, &QToolButton::clicked, this, [this]() {
                 auto *btn = qobject_cast<QToolButton *>(sender());
                 if (!btn) return;
                 QWidget *itemW = btn->parentWidget();
@@ -203,13 +226,19 @@ void AcpImageAttachmentList::rebuildLayout()
                 }
             });
 
-            auto *topRow = new QHBoxLayout();
-            topRow->setContentsMargins(0, 0, 0, 0);
-            topRow->setSpacing(2);
-            topRow->addWidget(thumb);
-            topRow->addWidget(removeBtn, 0, Qt::AlignTop);
+            auto *thumbHost = new QWidget(itemWidget);
+            thumbHost->setFixedSize(48, 48);
+            auto *thumbGrid = new QGridLayout(thumbHost);
+            thumbGrid->setContentsMargins(0, 0, 0, 0);
+            thumbGrid->setSpacing(0);
+            thumbGrid->addWidget(thumb, 0, 0);
+            // Same cell, second widget — aligned to the corner so it overlays
+            // the thumbnail. raise() ensures paint order even when the layout
+            // engine adds widgets in declaration order.
+            thumbGrid->addWidget(removeBtn, 0, 0, Qt::AlignTop | Qt::AlignRight);
+            removeBtn->raise();
 
-            vl->addLayout(topRow);
+            vl->addWidget(thumbHost, 0, Qt::AlignHCenter);
             vl->addWidget(nameLabel);
             vl->addWidget(sizeLabel);
             item.widget = itemWidget;

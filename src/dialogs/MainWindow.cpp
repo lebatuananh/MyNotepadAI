@@ -2365,7 +2365,7 @@ void MainWindow::tabBarRightClicked(ScintillaNext *editor)
         "",
 #ifdef Q_OS_WIN
         "ShowInExplorer",
-        "OpenTerminalHere",
+        "OpenTerminalInFolder",
         "",
 #endif
         "CopyFullPath",

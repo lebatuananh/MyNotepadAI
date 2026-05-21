@@ -36,6 +36,7 @@ class FolderAsWorkspaceDock : public QDockWidget
 
 public:
     explicit FolderAsWorkspaceDock(QWidget *parent = nullptr);
+    FolderAsWorkspaceDock(const QString &initialPath, QWidget *parent);
     ~FolderAsWorkspaceDock();
 
     void setRootPath(const QString dir);

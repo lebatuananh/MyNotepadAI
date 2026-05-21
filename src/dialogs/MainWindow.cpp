@@ -958,6 +958,7 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
     DockMiddleClickCloser::install(fawDock);
     ui->menuView->addAction(fawDock->toggleViewAction());
     connect(fawDock, &FolderAsWorkspaceDock::fileDoubleClicked, this, &MainWindow::openFile);
+    registerWorkspaceDock(fawDock);
 
     FileListDock *fileListDock = new FileListDock(this);
     fileListDock->hide();
@@ -988,10 +989,7 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
     connect(app->getSettings(), &ApplicationSettings::terminalFontChanged, terminalManager, &TerminalManager::applyFont);
 
     connect(ui->menuTerminal, &QMenu::aboutToShow, this, [this]() {
-        QString workspaceRoot;
-        if (FolderAsWorkspaceDock *fawDock = findChild<FolderAsWorkspaceDock *>()) {
-            workspaceRoot = fawDock->rootPath();
-        }
+        const QString workspaceRoot = currentWorkspaceRoot();
         QString activeFilePath;
         bool activeIsFile = false;
         if (ScintillaNext *editor = currentEditor()) {
@@ -1005,21 +1003,14 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
     });
 
     connect(ui->actionOpenTerminalInWorkspace, &QAction::triggered, this, [this]() {
-        QString workspaceRoot;
-        if (FolderAsWorkspaceDock *fawDock = findChild<FolderAsWorkspaceDock *>()) {
-            workspaceRoot = fawDock->rootPath();
-        }
-        const QString cwd = TerminalCwdResolver::resolveWorkspace(workspaceRoot);
+        const QString cwd = TerminalCwdResolver::resolveWorkspace(currentWorkspaceRoot());
         if (!cwd.isEmpty()) {
             terminalManager->openTerminal(cwd);
         }
     });
 
     connect(ui->actionOpenTerminalInFolder, &QAction::triggered, this, [this]() {
-        QString workspaceRoot;
-        if (FolderAsWorkspaceDock *fawDock = findChild<FolderAsWorkspaceDock *>()) {
-            workspaceRoot = fawDock->rootPath();
-        }
+        const QString workspaceRoot = currentWorkspaceRoot();
         QString activeFilePath;
         bool activeIsFile = false;
         if (ScintillaNext *editor = currentEditor()) {
@@ -1035,10 +1026,7 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
     });
 
     connect(ui->menuAi, &QMenu::aboutToShow, this, [this]() {
-        QString workspaceRoot;
-        if (FolderAsWorkspaceDock *fawDock = findChild<FolderAsWorkspaceDock *>()) {
-            workspaceRoot = fawDock->rootPath();
-        }
+        const QString workspaceRoot = currentWorkspaceRoot();
         QString activeFilePath;
         bool activeIsFile = false;
         if (ScintillaNext *editor = currentEditor()) {
@@ -1052,11 +1040,7 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
     });
 
     connect(ui->actionOpenAiAgentInWorkspace, &QAction::triggered, this, [this]() {
-        QString workspaceRoot;
-        if (FolderAsWorkspaceDock *fawDock = findChild<FolderAsWorkspaceDock *>()) {
-            workspaceRoot = fawDock->rootPath();
-        }
-        const QString cwd = TerminalCwdResolver::resolveWorkspace(workspaceRoot);
+        const QString cwd = TerminalCwdResolver::resolveWorkspace(currentWorkspaceRoot());
         if (cwd.isEmpty()) return;
 
         AcpAgentManager *manager = this->app->getAiAgentManager();
@@ -1068,10 +1052,7 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
     });
 
     connect(ui->actionOpenAiAgentInFolder, &QAction::triggered, this, [this]() {
-        QString workspaceRoot;
-        if (FolderAsWorkspaceDock *fawDock = findChild<FolderAsWorkspaceDock *>()) {
-            workspaceRoot = fawDock->rootPath();
-        }
+        const QString workspaceRoot = currentWorkspaceRoot();
         QString activeFilePath;
         bool activeIsFile = false;
         if (ScintillaNext *editor = currentEditor()) {
@@ -1355,26 +1336,109 @@ void MainWindow::openFolderAsWorkspaceDialog()
     if (dir.isEmpty())
         return;
 
-    // Launch a fresh, independent window for the chosen workspace instead of
-    // overwriting the current one. --new-window gives the spawned process its
-    // own SingleApplication primary identity so it isn't intercepted as a
-    // secondary of this instance.
-    const QString program = QCoreApplication::applicationFilePath();
-    const QStringList args{QStringLiteral("--new-window"),
-                           QStringLiteral("--workspace"), dir};
-
-    if (!QProcess::startDetached(program, args)) {
-        qWarning("Failed to launch new window for workspace: %s", qUtf8Printable(dir));
+    // Reuse the initial (always-present) workspace dock when it has no path yet
+    // so the first "Open Folder as Workspace" doesn't sit alongside an empty
+    // ghost tab. Any subsequent open creates a new tabified dock so the user
+    // can keep multiple workspaces in one window.
+    const auto existing = findChildren<FolderAsWorkspaceDock *>();
+    FolderAsWorkspaceDock *vacant = nullptr;
+    FolderAsWorkspaceDock *anchor = nullptr;
+    for (FolderAsWorkspaceDock *d : existing) {
+        if (!anchor && !d->rootPath().isEmpty()) anchor = d;
+        if (!vacant && d->rootPath().isEmpty()) vacant = d;
     }
+
+    if (vacant && !anchor) {
+        vacant->setRootPath(dir);
+        vacant->setVisible(true);
+        vacant->raise();
+        m_activeWorkspace = vacant;
+        return;
+    }
+
+    auto *dock = new FolderAsWorkspaceDock(dir, this);
+    static int extraIdx = 0;
+    dock->setObjectName(QStringLiteral("FolderAsWorkspaceDock_extra_%1").arg(++extraIdx));
+    dock->setAttribute(Qt::WA_DeleteOnClose, true);
+
+    addDockWidget(Qt::LeftDockWidgetArea, dock);
+    DockMiddleClickCloser::install(dock);
+    ui->menuView->addAction(dock->toggleViewAction());
+    connect(dock, &FolderAsWorkspaceDock::fileDoubleClicked, this, &MainWindow::openFile);
+    registerWorkspaceDock(dock);
+
+    if (anchor) {
+        tabifyDockWidget(anchor, dock);
+    }
+
+    dock->setVisible(true);
+    dock->raise();
+    m_activeWorkspace = dock;
 }
 
 void MainWindow::setFolderAsWorkspacePath(const QString &dir)
 {
-    if (!dir.isEmpty()) {
-        FolderAsWorkspaceDock *fawDock = findChild<FolderAsWorkspaceDock *>();
-        fawDock->setRootPath(dir);
-        fawDock->setVisible(true);
+    if (dir.isEmpty()) return;
+
+    // CLI --workspace targets the initial workspace slot. If the user already
+    // has multiple workspaces open in this restored window, the new one is
+    // tabified alongside them so existing tabs aren't clobbered.
+    const auto docks = findChildren<FolderAsWorkspaceDock *>();
+    FolderAsWorkspaceDock *primary = docks.isEmpty() ? nullptr : docks.first();
+    if (primary && primary->rootPath().isEmpty()) {
+        primary->setRootPath(dir);
+        primary->setVisible(true);
+        primary->raise();
+        m_activeWorkspace = primary;
+        return;
     }
+
+    auto *dock = new FolderAsWorkspaceDock(dir, this);
+    static int cliIdx = 0;
+    dock->setObjectName(QStringLiteral("FolderAsWorkspaceDock_cli_%1").arg(++cliIdx));
+    dock->setAttribute(Qt::WA_DeleteOnClose, true);
+
+    addDockWidget(Qt::LeftDockWidgetArea, dock);
+    DockMiddleClickCloser::install(dock);
+    ui->menuView->addAction(dock->toggleViewAction());
+    connect(dock, &FolderAsWorkspaceDock::fileDoubleClicked, this, &MainWindow::openFile);
+    registerWorkspaceDock(dock);
+
+    if (primary) tabifyDockWidget(primary, dock);
+    dock->setVisible(true);
+    dock->raise();
+    m_activeWorkspace = dock;
+}
+
+void MainWindow::registerWorkspaceDock(FolderAsWorkspaceDock *dock)
+{
+    // The currently-raised tab in a tabified group is the one the user is
+    // looking at, so use visibilityChanged(true) as the active-workspace signal.
+    connect(dock, &QDockWidget::visibilityChanged, this, [this, dock](bool visible) {
+        if (visible && !dock->rootPath().isEmpty()) {
+            m_activeWorkspace = dock;
+        }
+    });
+}
+
+FolderAsWorkspaceDock *MainWindow::activeWorkspaceDock() const
+{
+    if (m_activeWorkspace && !m_activeWorkspace->rootPath().isEmpty()) {
+        return m_activeWorkspace.data();
+    }
+    // Fallback after the active dock was closed (QPointer auto-nulls) — pick
+    // any remaining workspace with a path so cwd-aware actions keep working.
+    const auto docks = findChildren<FolderAsWorkspaceDock *>();
+    for (FolderAsWorkspaceDock *d : docks) {
+        if (!d->rootPath().isEmpty()) return d;
+    }
+    return nullptr;
+}
+
+QString MainWindow::currentWorkspaceRoot() const
+{
+    FolderAsWorkspaceDock *dock = activeWorkspaceDock();
+    return dock ? dock->rootPath() : QString();
 }
 
 void MainWindow::reloadFile()

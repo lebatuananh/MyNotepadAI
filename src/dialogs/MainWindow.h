@@ -23,6 +23,7 @@
 #include <QMainWindow>
 #include <QLabel>
 #include <QActionGroup>
+#include <QPointer>
 
 #include "DockedEditor.h"
 
@@ -44,6 +45,7 @@ class Converter;
 class DefaultDirectoryManager;
 class TabsQuickActionsBar;
 class TerminalManager;
+class FolderAsWorkspaceDock;
 
 class MainWindow : public QMainWindow
 {
@@ -163,6 +165,9 @@ private:
     void showSaveErrorMessage(ScintillaNext *editor, QFileDevice::FileError error);
     void showEditorZoomLevelIndicator();
     void attachAiAgentDock(class AiAgentDock *dock);
+    void registerWorkspaceDock(FolderAsWorkspaceDock *dock);
+    FolderAsWorkspaceDock *activeWorkspaceDock() const;
+    QString currentWorkspaceRoot() const;
 
     enum class UserSaveAction { SaveAll, DiscardAll, Cancel };
     UserSaveAction promptForSave(const QVector<ScintillaNext *> &editors);
@@ -187,6 +192,8 @@ private:
     QMenu *buildMenu(QStringList actionNames);
 
     TerminalManager *terminalManager = Q_NULLPTR;
+
+    QPointer<FolderAsWorkspaceDock> m_activeWorkspace;
 };
 
 #endif // MAINWINDOW_H

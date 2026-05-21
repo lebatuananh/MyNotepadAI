@@ -25,6 +25,7 @@
 #include <QCursor>
 #include <QDir>
 #include <QEvent>
+#include <QFileInfo>
 #include <QFileSystemModel>
 #include <QHelpEvent>
 #include <QStyle>
@@ -93,6 +94,49 @@ FolderAsWorkspaceDock::FolderAsWorkspaceDock(QWidget *parent) :
     setRootPath(settings.get(rootPathSetting));
 }
 
+FolderAsWorkspaceDock::FolderAsWorkspaceDock(const QString &initialPath, QWidget *parent) :
+    QDockWidget(parent),
+    ui(new Ui::FolderAsWorkspaceDock),
+    model(new FolderAsWorkspaceFsModel(this)),
+    tooltipTimer(new QTimer(this))
+{
+    ui->setupUi(this);
+
+    ui->treeView->setModel(model);
+    ui->treeView->header()->hideSection(1);
+    ui->treeView->header()->hideSection(2);
+    ui->treeView->header()->hideSection(3);
+
+    connect(ui->treeView, &QTreeView::doubleClicked, this, [=](const QModelIndex &index) {
+        if (!model->isDir(index)) {
+            emit fileDoubleClicked(model->filePath(index));
+        }
+    });
+
+    const int wakeUpDelay = QApplication::style()->styleHint(QStyle::SH_ToolTip_WakeUpDelay);
+    tooltipTimer->setSingleShot(true);
+    tooltipTimer->setInterval(wakeUpDelay > 0 ? wakeUpDelay : 700);
+    connect(tooltipTimer, &QTimer::timeout, this, [this]() {
+        QWidget *viewport = ui->treeView->viewport();
+        const QPoint localPos = viewport->mapFromGlobal(QCursor::pos());
+        const QModelIndex index = ui->treeView->indexAt(localPos);
+        if (!index.isValid() || QPersistentModelIndex(index) != pendingTooltipIndex) {
+            return;
+        }
+        const QString text = model->data(index, Qt::ToolTipRole).toString();
+        if (text.isEmpty()) {
+            return;
+        }
+        QToolTip::showText(QCursor::pos(), text, viewport, ui->treeView->visualRect(index));
+    });
+
+    ui->treeView->viewport()->installEventFilter(this);
+
+    // Explicit-path ctor: skip the saved-setting load so additional workspaces
+    // don't briefly flash the previous global root before showing their own.
+    setRootPath(initialPath);
+}
+
 FolderAsWorkspaceDock::~FolderAsWorkspaceDock()
 {
     delete ui;
@@ -105,6 +149,17 @@ void FolderAsWorkspaceDock::setRootPath(const QString dir)
 
     model->setRootPath(dir);
     ui->treeView->setRootIndex(model->index(dir));
+
+    // Window title doubles as the tab label when several workspaces are tabified
+    // alongside each other, so make it the folder basename rather than the static
+    // .ui label.
+    if (dir.isEmpty()) {
+        setWindowTitle(tr("Folder as Workspace"));
+    } else {
+        QString basename = QFileInfo(QDir::cleanPath(dir)).fileName();
+        if (basename.isEmpty()) basename = dir;
+        setWindowTitle(basename);
+    }
 }
 
 QString FolderAsWorkspaceDock::rootPath() const

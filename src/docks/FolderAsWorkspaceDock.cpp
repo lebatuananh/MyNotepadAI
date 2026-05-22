@@ -303,3 +303,16 @@ void FolderAsWorkspaceDock::showGitDiffPreview(const GitStatusEntry &entry)
         c->showDiffFor(entry);
     }
 }
+
+void FolderAsWorkspaceDock::showGitTab()
+{
+    // Setting currentWidget triggers QTabWidget::currentChanged → onTabChanged,
+    // which lazy-constructs the GitTabWidget. No need to call ensureGitTab here.
+    if (ui->tabs->currentWidget() != ui->gitTab) {
+        ui->tabs->setCurrentWidget(ui->gitTab);
+    } else {
+        // Already on the Git tab — make sure the underlying widget exists
+        // (no currentChanged would fire on a no-op switch).
+        ensureGitTab();
+    }
+}

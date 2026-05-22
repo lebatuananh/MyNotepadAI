@@ -168,7 +168,7 @@ private:
     void showEditorZoomLevelIndicator();
     void attachAiAgentDock(class AiAgentDock *dock);
     void registerWorkspaceDock(FolderAsWorkspaceDock *dock);
-    void openFolderAsWorkspacePath(const QString &dir);
+    void openFolderAsWorkspacePath(const QString &dir, bool showGitTab = false);
     void wireWorkspaceGitSignals(FolderAsWorkspaceDock *dock);
     FolderAsWorkspaceDock *activeWorkspaceDock() const;
     QString currentWorkspaceRoot() const;

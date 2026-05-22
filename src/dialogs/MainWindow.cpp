@@ -1554,7 +1554,7 @@ void MainWindow::setFolderAsWorkspacePath(const QString &dir)
     openFolderAsWorkspacePath(dir);
 }
 
-void MainWindow::openFolderAsWorkspacePath(const QString &dir)
+void MainWindow::openFolderAsWorkspacePath(const QString &dir, bool showGitTab)
 {
     if (dir.isEmpty()) return;
 
@@ -1570,6 +1570,7 @@ void MainWindow::openFolderAsWorkspacePath(const QString &dir)
             d->raise();
             m_activeWorkspace = d;
             CrashContext::setActiveWorkspaceRoot(currentWorkspaceRoot());
+            if (showGitTab) d->showGitTab();
             return;
         }
     }
@@ -1591,6 +1592,7 @@ void MainWindow::openFolderAsWorkspacePath(const QString &dir)
         vacant->raise();
         m_activeWorkspace = vacant;
         CrashContext::setActiveWorkspaceRoot(currentWorkspaceRoot());
+        if (showGitTab) vacant->showGitTab();
         return;
     }
 
@@ -1614,6 +1616,7 @@ void MainWindow::openFolderAsWorkspacePath(const QString &dir)
     dock->raise();
     m_activeWorkspace = dock;
     CrashContext::setActiveWorkspaceRoot(currentWorkspaceRoot());
+    if (showGitTab) dock->showGitTab();
 }
 
 void MainWindow::registerWorkspaceDock(FolderAsWorkspaceDock *dock)
@@ -1635,7 +1638,12 @@ void MainWindow::wireWorkspaceGitSignals(FolderAsWorkspaceDock *dock)
                 dock->showGitDiffPreview(entry);
             });
     connect(dock, &FolderAsWorkspaceDock::gitOpenSubmoduleRequested,
-            this, &MainWindow::openFolderAsWorkspacePath);
+            this, [this](const QString &path) {
+                // The user navigated here from another workspace's Git tab, so
+                // land them on Git in the new workspace too — they're clearly
+                // working in the version-control axis right now.
+                openFolderAsWorkspacePath(path, /*showGitTab=*/true);
+            });
     connect(dock, &FolderAsWorkspaceDock::gitDiffPreviewRendered,
             this, [this](ScintillaNext *editor) {
                 dockedEditor->switchToEditor(editor);

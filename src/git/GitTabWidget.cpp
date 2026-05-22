@@ -538,6 +538,13 @@ void GitTabWidget::onTreeDoubleClicked(const QModelIndex &index)
     const QString repo = m_controller->currentRepo();
     if (repo.isEmpty()) return;
     const QString abs = QDir(repo).filePath(rel);
+    // Symmetric with onTreeClicked: a submodule entry is a directory, and
+    // fileActivated would funnel it into MainWindow::openFile which prompts
+    // "Create File?" on a non-file path. Route it through the workspace path.
+    if (QFileInfo(abs).isDir()) {
+        emit openSubmoduleRequested(abs);
+        return;
+    }
     emit fileActivated(abs);
 }
 

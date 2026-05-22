@@ -55,6 +55,11 @@ public:
     // Host (MainWindow) calls this in response to gitDiffRequested.
     void showGitDiffPreview(const GitStatusEntry &entry);
 
+    // Switch the tab widget to the Git page and lazy-construct it if needed.
+    // Used when a workspace is opened via a path that implies "show me Git first"
+    // (e.g. clicking a submodule in another workspace's Git status tree).
+    void showGitTab();
+
 signals:
     void fileDoubleClicked(const QString &filePath);
     // Forwarded from GitTabWidget once the Git tab is created.

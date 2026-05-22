@@ -62,7 +62,8 @@ void GitDiffPainter::configureEditor(ScintillaNext *editor, const GitDiffPalette
     setStyleFB(editor, StyleNoNewline,  pal.fgHunkHeader,   QColor(Qt::transparent));
 
     // Hide selection / line markers / fold markers to look like a static view.
-    editor->send(SCI_SETMARGINWIDTHN, 0, 0);
+    // Margin 0 (line numbers) is owned by the LineNumbers decorator and follows
+    // the user's "Show Line Numbers" setting — don't override it here.
     editor->send(SCI_SETMARGINWIDTHN, 1, 0);
     editor->send(SCI_SETMARGINWIDTHN, 2, 0);
     (void)defFg;

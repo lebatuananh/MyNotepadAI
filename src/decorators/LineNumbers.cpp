@@ -60,7 +60,14 @@ void LineNumbers::adjustMarginWidth()
 
 void LineNumbers::notify(const NotificationData *pscn)
 {
-    if ((pscn->nmhdr.code == Notification::UpdateUI && FlagSet(pscn->updated, Update::VScroll)) || (pscn->nmhdr.code == Notification::Zoom)) {
+    // Update::Content covers programmatic text replacement (e.g. GitDiffPainter
+    // rebuilding the diff preview via SCI_APPENDTEXT), which doesn't fire
+    // VScroll on its own — without it the margin would stay at whatever width
+    // it had before, and the user would only see line numbers appear after
+    // their first scroll.
+    if ((pscn->nmhdr.code == Notification::UpdateUI &&
+         (FlagSet(pscn->updated, Update::VScroll) || FlagSet(pscn->updated, Update::Content))) ||
+        (pscn->nmhdr.code == Notification::Zoom)) {
         adjustMarginWidth();
     }
 }

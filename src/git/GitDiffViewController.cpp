@@ -24,6 +24,7 @@
 #include "GitDiffPainter.h"
 #include "GitDiffPalette.h"
 #include "ScintillaNext.h"
+#include "LineNumbers.h"
 
 GitDiffViewController::GitDiffViewController(GitController *controller,
                                              EditorManager *editorManager,
@@ -68,6 +69,15 @@ ScintillaNext *GitDiffViewController::ensurePreviewEditor()
     if (m_previewEditor) return m_previewEditor;
     ScintillaNext *e = m_editorManager->createEditor(tr("[Diff Preview]"));
     m_editorManager->registerAsDiffView(e);
+
+    // The default LineNumbers decorator generates buffer-line numbers
+    // (1, 2, 3, ...) which are meaningless for a unified diff. GitDiffPainter
+    // populates margin 0 itself with the diff's own old/new file line numbers,
+    // so the decorator must stay disabled on this editor.
+    if (auto *ln = e->findChild<LineNumbers *>(QString(), Qt::FindDirectChildrenOnly)) {
+        ln->setEnabled(false);
+    }
+
     GitDiffPainter::configureEditor(e, GitDiffPalette::current(m_isDark));
     m_previewEditor = e;
     emit newPreviewEditorCreated(e);

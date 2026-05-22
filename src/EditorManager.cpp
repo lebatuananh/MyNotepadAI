@@ -131,6 +131,10 @@ EditorManager::EditorManager(ApplicationSettings *settings, QObject *parent)
 
     connect(settings, &ApplicationSettings::showLineNumbersChanged, this, [=](bool b){
         for (auto &editor : getEditors()) {
+            // Diff views own margin 0 themselves (per-row old/new file line numbers
+            // rendered by GitDiffPainter). Their LineNumbers decorator was disabled
+            // at creation; don't let the user's "Show Line Numbers" toggle clobber it.
+            if (isDiffView(editor)) continue;
             LineNumbers *decorator = editor->findChild<LineNumbers *>(QString(), Qt::FindDirectChildrenOnly);
             if (decorator) {
                 decorator->setEnabled(b);

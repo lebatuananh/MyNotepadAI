@@ -135,6 +135,10 @@ public:
 
     DEFINE_SETTING(SyntaxHighlightDiffEnabled, syntaxHighlightDiffEnabled, bool)
 
+    // Files-tab git decoration master toggle. When false, the workspace
+    // tree shows default text colour regardless of git status.
+    DEFINE_SETTING(FileTreeGitColors, fileTreeGitColors, bool)
+
 #ifndef NDEBUG
     DEFINE_SETTING(ShutdownDiagnosticsEnabled, shutdownDiagnosticsEnabled, bool)
 #endif

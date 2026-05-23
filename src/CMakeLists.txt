@@ -191,6 +191,8 @@ qt_add_executable(NotepadAI
 	docks/FolderAsWorkspaceDock.cpp
 	docks/FolderAsWorkspaceDock.h
 	docks/FolderAsWorkspaceDock.ui
+	docks/FolderAsWorkspaceFsModel.cpp
+	docks/FolderAsWorkspaceFsModel.h
 
 	git/BranchPickerPopup.cpp
 	git/BranchPickerPopup.h
@@ -245,6 +247,10 @@ qt_add_executable(NotepadAI
 	git/GitNumstatParser.h
 	git/GitProcessRunner.cpp
 	git/GitProcessRunner.h
+	git/PathStatusIndex.cpp
+	git/PathStatusIndex.h
+	git/SubmoduleStatusFetcher.cpp
+	git/SubmoduleStatusFetcher.h
 	git/GitTabSegmentedBar.cpp
 	git/GitTabSegmentedBar.h
 	git/GitRepoDiscovery.cpp

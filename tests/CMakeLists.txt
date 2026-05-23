@@ -536,3 +536,23 @@ target_sources(test_git_history_model PRIVATE
     ${CMAKE_SOURCE_DIR}/src/ProfileScope.h
 )
 add_test(NAME GitHistoryModel COMMAND test_git_history_model)
+
+# --- PathStatusIndex: per-file + folder-rollup git status index for the
+#     workspace file tree (Files tab decoration). Pure value object; tests
+#     run as Qt6::Core + Qt6::Test only. Includes hard-fail benchmarks:
+#       rebuild(1000 entries)                          < 1 ms
+#       deltaPaths(1000 vs 1000, 5% divergence)        < 1 ms
+#       1,000,000 mixed file+folder lookups            < 100 ms
+#     Regressions in any benchmark hard-fail at CI time. ---
+qt_add_executable(test_path_status_index test_path_status_index.cpp)
+target_include_directories(test_path_status_index PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/git
+)
+target_link_libraries(test_path_status_index PRIVATE Qt6::Core Qt6::Test)
+target_sources(test_path_status_index PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/git/PathStatusIndex.cpp
+    ${CMAKE_SOURCE_DIR}/src/git/PathStatusIndex.h
+    ${CMAKE_SOURCE_DIR}/src/git/GitStatusEntry.h
+)
+add_test(NAME PathStatusIndex COMMAND test_path_status_index)

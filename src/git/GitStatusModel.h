@@ -94,6 +94,12 @@ public:
     QStringList stagedSelectionPaths(const QModelIndexList &idxs) const;
     QStringList unstagedSelectionPaths(const QModelIndexList &idxs) const;
 
+    // Concatenated view of all sections' entries — section-order:
+    // Conflicts, Staged, Tracked, Untracked. Returned by value (cheap copy
+    // on typical dirty-set sizes). Used by file-tree-git-decorations to
+    // feed PathStatusIndex without duplicating parser state.
+    GitStatusEntries allEntries() const;
+
     static QString sectionTitle(GitStatusEntry::Section s);
     static QString changeShort(GitStatusEntry::Change c);
 

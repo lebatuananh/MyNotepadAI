@@ -292,6 +292,22 @@ void GitStatusModel::setDarkPalette(bool isDark)
     }
 }
 
+GitStatusEntries GitStatusModel::allEntries() const
+{
+    GitStatusEntries out;
+    int total = 0;
+    for (int s = 0; s < GitStatusEntry::SectionCount; ++s) {
+        total += m_buckets[s].size();
+    }
+    out.reserve(total);
+    for (int s = 0; s < GitStatusEntry::SectionCount; ++s) {
+        for (const GitStatusEntry &e : m_buckets[s]) {
+            out.append(e);
+        }
+    }
+    return out;
+}
+
 QStringList GitStatusModel::relPathsAtIndexes(const QModelIndexList &idxs) const
 {
     QStringList out;

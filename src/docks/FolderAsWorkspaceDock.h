@@ -28,17 +28,19 @@
 #include <QStringList>
 
 #include "GitStatusEntry.h"
+#include "PathStatusIndex.h"
 
 namespace Ui {
 class FolderAsWorkspaceDock;
 }
 
-class QFileSystemModel;
+class FolderAsWorkspaceFsModel;
 class QTimer;
 class GitTabWidget;
 class GitDiffViewController;
 class GitCommitView;
 class ScintillaNext;
+class SubmoduleStatusFetcher;
 
 // Snapshot of per-workspace UI state. Carried verbatim between disk (QSettings
 // nested array under FolderAsWorkspace/WorkspaceStates) and the dock.
@@ -129,17 +131,37 @@ private slots:
     void onDirectoryLoaded(const QString &loadedPath);
     void onTreeExpanded(const QModelIndex &index);
     void onTreeCollapsed(const QModelIndex &index);
+    void onStatusUpdated();
+    void onSubmoduleEntriesReady(const GitStatusEntries &entries);
 
 private:
     Ui::FolderAsWorkspaceDock *ui;
 
-    QFileSystemModel *model;
+    FolderAsWorkspaceFsModel *model;
     GitTabWidget *gitTab = nullptr;
     GitDiffViewController *gitDiffViewController = nullptr;
     GitCommitView         *gitCommitView = nullptr;
 
     QTimer *tooltipTimer;
     QPersistentModelIndex pendingTooltipIndex;
+
+    // Per-workspace git decoration index. Owned by-value; held alive for the
+    // dock's lifetime. Pointer handed to `model` via setStatusIndex; cleared
+    // in destructor before the index dies.
+    PathStatusIndex m_pathStatus;
+    // Async fetcher for per-file `git status` inside each detected submodule.
+    // Lazily created on first need; nullptr means no submodule status has
+    // been requested for this dock yet.
+    SubmoduleStatusFetcher *m_subFetcher = nullptr;
+    // Cached parent-repo status snapshot held between the first repaint pass
+    // (parent entries only) and the second pass (parent + submodule entries
+    // merged) once the fetcher returns. Empty when no fetch is in flight.
+    GitStatusEntries m_pendingParentEntries;
+    QString m_pendingRepoTop;
+    // Set true once setRootPath has scheduled the queued ensureGitTab so we
+    // don't double-schedule when subsequent setRootPath calls land on the
+    // same root or while construction is pending.
+    bool m_gitTabScheduled = false;
 
     // Restoration state — see openspec discussion. parentDir → child path map
     // drained on each QFileSystemModel::directoryLoaded fire. Per-dock; cleared
@@ -157,6 +179,25 @@ private:
     void ensureGitTab();
     GitDiffViewController *ensureGitDiffViewController();
     GitCommitView         *ensureGitCommitView();
+    // Lazy-create the per-dock SubmoduleStatusFetcher; ensures connection to
+    // onSubmoduleEntriesReady is wired exactly once.
+    SubmoduleStatusFetcher *ensureSubmoduleFetcher();
+    // Apply a fully merged GitStatusEntries vector (parent + sub-status if
+    // available) to m_pathStatus, computing the delta against the previous
+    // snapshot and asking the model to repaint only the affected rows.
+    void applyMergedEntries(const GitStatusEntries &merged, const QString &repoTop);
+
+    // Wire the new FolderAsWorkspaceFsModel to the app's theme signal +
+    // ApplicationSettings/FileTreeGitColors setting + this dock's
+    // PathStatusIndex. Idempotent at construction time only — called once
+    // from each ctor. Safe to call when qApp is not the NotepadNextApplication
+    // (tests instantiate the dock standalone): the theme connect is skipped.
+    void wireFileTreeGitDecorations();
+
+    // Schedule a deferred ensureGitTab() if the workspace has a directory
+    // and the file-tree decoration setting is enabled. No-op if gitTab is
+    // already constructed or a schedule is already in flight.
+    void maybeScheduleGitTabForDecoration();
 
     // True if any cleaned-path ancestor of `child` (up to and including `key`'s
     // parent chain stop) is in m_userVetoed. O(depth), depth typically < 10.

@@ -19,11 +19,15 @@
 
 #include "FolderAsWorkspaceDock.h"
 #include "ApplicationSettings.h"
+#include "FolderAsWorkspaceFsModel.h"
 #include "GitCommitView.h"
 #include "GitController.h"
 #include "GitDiffViewController.h"
+#include "GitStatusModel.h"
 #include "GitTabWidget.h"
 #include "NotepadNextApplication.h"
+#include "ProfileScope.h"
+#include "SubmoduleStatusFetcher.h"
 #include "ui_FolderAsWorkspaceDock.h"
 
 #include <QApplication>
@@ -33,7 +37,6 @@
 #include <QDir>
 #include <QEvent>
 #include <QFileInfo>
-#include <QFileSystemModel>
 #include <QHelpEvent>
 #include <QItemSelectionModel>
 #include <QMetaObject>
@@ -53,19 +56,7 @@ ApplicationSetting<QString> rootPathSetting{"FolderAsWorkspace/RootPath"};
 
 namespace {
 
-class FolderAsWorkspaceFsModel : public QFileSystemModel
-{
-public:
-    using QFileSystemModel::QFileSystemModel;
-
-    QVariant data(const QModelIndex &index, int role) const override
-    {
-        if (role == Qt::ToolTipRole && index.isValid()) {
-            return QDir::toNativeSeparators(filePath(index));
-        }
-        return QFileSystemModel::data(index, role);
-    }
-};
+// (No helpers — entries are read from GitStatusModel::allEntries() directly.)
 
 } // namespace
 
@@ -81,6 +72,8 @@ FolderAsWorkspaceDock::FolderAsWorkspaceDock(QWidget *parent) :
     ui->treeView->header()->hideSection(1);
     ui->treeView->header()->hideSection(2);
     ui->treeView->header()->hideSection(3);
+
+    wireFileTreeGitDecorations();
 
     connect(ui->treeView, &QTreeView::doubleClicked, this, [=](const QModelIndex &index) {
         if (!model->isDir(index)) {
@@ -138,6 +131,8 @@ FolderAsWorkspaceDock::FolderAsWorkspaceDock(const QString &initialPath, QWidget
     ui->treeView->header()->hideSection(2);
     ui->treeView->header()->hideSection(3);
 
+    wireFileTreeGitDecorations();
+
     connect(ui->treeView, &QTreeView::doubleClicked, this, [=](const QModelIndex &index) {
         if (!model->isDir(index)) {
             emit fileDoubleClicked(model->filePath(index));
@@ -182,7 +177,52 @@ FolderAsWorkspaceDock::FolderAsWorkspaceDock(const QString &initialPath, QWidget
 
 FolderAsWorkspaceDock::~FolderAsWorkspaceDock()
 {
+    // Defensive: clear the model's index pointer before m_pathStatus is
+    // destroyed by the member-destruction phase, in case the model is asked
+    // to paint during Qt's child-cleanup walk.
+    if (model) {
+        model->setStatusIndex(nullptr);
+    }
     delete ui;
+}
+
+void FolderAsWorkspaceDock::wireFileTreeGitDecorations()
+{
+    model->setStatusIndex(&m_pathStatus);
+
+    if (auto *app = qobject_cast<NotepadNextApplication *>(qApp)) {
+        model->setDarkPalette(app->isEffectiveThemeDark());
+        connect(app, &NotepadNextApplication::effectiveThemeChanged,
+                model, [this, app]() {
+                    model->setDarkPalette(app->isEffectiveThemeDark());
+                });
+
+        ApplicationSettings *settings = app->getSettings();
+        if (settings) {
+            model->setColorsEnabled(settings->fileTreeGitColors());
+            connect(settings, &ApplicationSettings::fileTreeGitColorsChanged,
+                    this, [this](bool enabled) {
+                        model->setColorsEnabled(enabled);
+                        if (enabled) maybeScheduleGitTabForDecoration();
+                    });
+        }
+    }
+}
+
+void FolderAsWorkspaceDock::maybeScheduleGitTabForDecoration()
+{
+    if (m_gitTabScheduled || gitTab != nullptr) return;
+    if (rootPath().isEmpty()) return;
+
+    auto *app = qobject_cast<NotepadNextApplication *>(qApp);
+    if (app && app->getSettings() && !app->getSettings()->fileTreeGitColors()) {
+        return;
+    }
+
+    m_gitTabScheduled = true;
+    QMetaObject::invokeMethod(this, [this]() {
+        ensureGitTab();
+    }, Qt::QueuedConnection);
 }
 
 void FolderAsWorkspaceDock::setRootPath(const QString dir)
@@ -204,6 +244,11 @@ void FolderAsWorkspaceDock::setRootPath(const QString dir)
         if (basename.isEmpty()) basename = dir;
         setWindowTitle(basename);
     }
+
+    // Defer the GitController spawn to the next event-loop tick so the
+    // first paint of the tree is not blocked by a process. When the user
+    // has the decoration setting off, we skip the spawn entirely.
+    maybeScheduleGitTabForDecoration();
 }
 
 QString FolderAsWorkspaceDock::rootPath() const
@@ -298,7 +343,120 @@ void FolderAsWorkspaceDock::ensureGitTab()
             this, &FolderAsWorkspaceDock::gitOpenSubmoduleRequested);
     connect(gitTab, &GitTabWidget::openCommitDetailRequested,
             this, &FolderAsWorkspaceDock::gitOpenCommitDetailRequested);
+
+    // File-tree decoration: subscribe to status changes so the FsModel
+    // repaints only the rows that changed. The controller is created lazily
+    // inside GitTabWidget; we have to wait until initializeIfNeeded() runs
+    // for the controller pointer to be non-null. Using a queued one-shot
+    // captures the controller post-init.
+    if (GitController *c = gitTab->controller()) {
+        connect(c, &GitController::statusUpdated,
+                this, &FolderAsWorkspaceDock::onStatusUpdated);
+    }
+
     gitTab->initializeIfNeeded();
+
+    // A controller may have been created during initializeIfNeeded() rather
+    // than at construction; cover that case too.
+    if (GitController *c = gitTab->controller()) {
+        // Guard against double-connect (Qt deduplicates the same method ptr +
+        // sender + receiver tuple by default when UniqueConnection is set).
+        connect(c, &GitController::statusUpdated,
+                this, &FolderAsWorkspaceDock::onStatusUpdated,
+                Qt::UniqueConnection);
+    }
+
+    // Drain any status the controller has cached at this point (rare, but
+    // covers the case where the new workspace inherits an in-flight refresh
+    // from a quick re-open of the same path).
+    onStatusUpdated();
+}
+
+void FolderAsWorkspaceDock::onStatusUpdated()
+{
+    PROFILE_SCOPE("FolderAsWorkspaceDock::onStatusUpdated");
+
+    if (!gitTab || !gitTab->controller() || !gitTab->controller()->statusModel()) {
+        // Nothing to read yet. If we previously had entries, clear them so
+        // stale decorations disappear (e.g. controller errored out).
+        if (!m_pathStatus.isEmpty()) {
+            const QSet<QString> stale = m_pathStatus.allIndexedPaths();
+            m_pathStatus.clear();
+            model->notifyPathsChanged(stale);
+        }
+        return;
+    }
+
+    const GitController *c = gitTab->controller();
+    const GitStatusEntries parentEntries = c->statusModel()->allEntries();
+    const QString repoTop = c->currentRepo();
+
+    // Stage 1: paint immediately with parent entries only. The submodule
+    // folder itself is coloured here (its entry has isSubmodule=true →
+    // PathStatusIndex registers it as a folder), but files inside the
+    // submodule remain undecorated until the async sub-status returns.
+    applyMergedEntries(parentEntries, repoTop);
+
+    // Stage 2: collect submodule paths from the parent's entries and kick off
+    // a fan-out fetch. The fetcher cancels any prior in-flight round, so
+    // back-to-back refreshes coalesce safely.
+    QVector<SubmoduleStatusFetcher::Submodule> submodules;
+    for (const GitStatusEntry &e : parentEntries) {
+        if (!e.isSubmodule || e.relPath.isEmpty()) continue;
+        SubmoduleStatusFetcher::Submodule s;
+        s.absPath = QDir::cleanPath(repoTop + QLatin1Char('/') + e.relPath);
+        s.relFromRoot = e.relPath;
+        submodules.append(s);
+    }
+
+    if (submodules.isEmpty()) {
+        // No submodules → no second pass. Drop any cached parent snapshot
+        // from a prior round so a future submodule-bearing refresh starts
+        // from a clean slate.
+        m_pendingParentEntries.clear();
+        m_pendingRepoTop.clear();
+        return;
+    }
+
+    m_pendingParentEntries = parentEntries;
+    m_pendingRepoTop = repoTop;
+    ensureSubmoduleFetcher()->fetch(submodules);
+}
+
+void FolderAsWorkspaceDock::onSubmoduleEntriesReady(const GitStatusEntries &entries)
+{
+    PROFILE_SCOPE("FolderAsWorkspaceDock::onSubmoduleEntriesReady");
+
+    if (m_pendingRepoTop.isEmpty()) return; // stale callback after dock root cleared
+
+    GitStatusEntries merged = m_pendingParentEntries;
+    merged.reserve(merged.size() + entries.size());
+    for (const GitStatusEntry &e : entries) merged.append(e);
+
+    applyMergedEntries(merged, m_pendingRepoTop);
+
+    m_pendingParentEntries.clear();
+    m_pendingRepoTop.clear();
+}
+
+void FolderAsWorkspaceDock::applyMergedEntries(const GitStatusEntries &merged,
+                                               const QString &repoTop)
+{
+    PathStatusIndex next;
+    next.rebuild(merged, repoTop);
+
+    const QSet<QString> delta = next.deltaPaths(m_pathStatus);
+    m_pathStatus = std::move(next);
+    model->notifyPathsChanged(delta);
+}
+
+SubmoduleStatusFetcher *FolderAsWorkspaceDock::ensureSubmoduleFetcher()
+{
+    if (m_subFetcher) return m_subFetcher;
+    m_subFetcher = new SubmoduleStatusFetcher(this);
+    connect(m_subFetcher, &SubmoduleStatusFetcher::entriesReady,
+            this, &FolderAsWorkspaceDock::onSubmoduleEntriesReady);
+    return m_subFetcher;
 }
 
 GitDiffViewController *FolderAsWorkspaceDock::ensureGitDiffViewController()

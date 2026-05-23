@@ -59,6 +59,13 @@ public:
     GitStatusModel *statusModel() const { return m_status; }
 
     QString currentRepo() const { return m_currentRepo; }
+
+    // Ahead/behind counts vs the current branch's upstream, populated from
+    // `git status --porcelain=v2 --branch`. Both stay at 0 when no upstream
+    // is configured or HEAD is detached; check hasUpstream() to distinguish.
+    int  ahead() const       { return m_ahead; }
+    int  behind() const      { return m_behind; }
+    bool hasUpstream() const { return m_hasUpstream; }
     QString currentBranch() const { return m_currentBranch; }
     QString detachedShortSha() const { return m_detachedSha; }
     QStringList branchesLocal() const { return m_localBranches; }
@@ -100,6 +107,10 @@ signals:
     void statusUpdated();
     void numstatUpdated();
     void branchesUpdated();
+    // Fired whenever ahead/behind vs upstream (or upstream-presence) changes.
+    // Emitted after statusUpdated() so subscribers that depend on both can
+    // assume the per-file model has already been refreshed.
+    void aheadBehindChanged(int ahead, int behind, bool hasUpstream);
     void reposUpdated();
     void remoteOpProgress(const QString &line);
     void opSucceeded(const QString &humanName);
@@ -148,6 +159,17 @@ private:
 
     QString m_currentRepo;
     QString m_currentBranch;
+    // Deferred selectRepo target — set when selectRepo() is called while a
+    // queue is in flight; applied by runNext() after the queue drains. Avoids
+    // silently dropping repo-switch clicks (combo box / submodule double-click)
+    // that arrive mid-refresh, which previously left the changes panel showing
+    // the prior repo's data despite the combo updating.
+    QString m_pendingRepoSwitch;
+
+    // Mirrors of GitStatusParser::Header from the most recent status fetch.
+    int  m_ahead       = 0;
+    int  m_behind      = 0;
+    bool m_hasUpstream = false;
     QString m_detachedSha;
     QStringList m_localBranches;
     QStringList m_remoteBranches;
@@ -166,6 +188,10 @@ private:
 
     void enqueueDiscovery();
     void enqueueFullRefresh();
+    // Internal — apply a repo switch (mutate state + enqueue refresh).
+    // selectRepo() defers to this when the controller is idle; runNext()
+    // applies the deferred target once the queue drains.
+    void applySelectRepo(const QString &cleanToplevel);
 
     void handleToplevelDone(int exit, const QByteArray &out, const QByteArray &err);
     void handleSubmodulesDone(int exit, const QByteArray &out);

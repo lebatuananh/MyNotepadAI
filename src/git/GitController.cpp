@@ -161,6 +161,7 @@ void GitController::enqueueFullRefresh()
     st.argv = { QStringLiteral("-c"), QStringLiteral("core.quotepath=false"),
                 QStringLiteral("-C"), m_currentRepo,
                 QStringLiteral("status"), QStringLiteral("--porcelain=v2"),
+                QStringLiteral("--branch"),
                 QStringLiteral("-z"), QStringLiteral("--untracked-files=all"), QStringLiteral("--renames") };
     st.timeoutMs = kTimeoutStatus;
     enqueue(st);
@@ -168,10 +169,33 @@ void GitController::enqueueFullRefresh()
 
 void GitController::selectRepo(const QString &repoToplevel)
 {
-    if (m_busy) return; // ignore while op in flight; UI should disable selector
-    if (repoToplevel == m_currentRepo) return;
-    m_currentRepo = QDir::cleanPath(repoToplevel);
+    const QString clean = QDir::cleanPath(repoToplevel);
+    if (clean == m_currentRepo) {
+        // Already on this repo. Cancel any deferred switch to a stale target.
+        m_pendingRepoSwitch.clear();
+        return;
+    }
+    if (m_busy) {
+        // Queue draining will pick this up. Latest wins — clicking through
+        // several submodules quickly only applies the final selection.
+        m_pendingRepoSwitch = clean;
+        return;
+    }
+    applySelectRepo(clean);
+}
+
+void GitController::applySelectRepo(const QString &cleanToplevel)
+{
+    m_currentRepo = cleanToplevel;
     m_watcher->setRepo(m_currentRepo);
+    // Clear stale ahead/behind before the next status fetch fills it. Without
+    // this the UI would briefly show counts from the prior repo.
+    if (m_ahead != 0 || m_behind != 0 || m_hasUpstream) {
+        m_ahead = 0;
+        m_behind = 0;
+        m_hasUpstream = false;
+        emit aheadBehindChanged(0, 0, false);
+    }
     enqueueFullRefresh();
 }
 
@@ -399,6 +423,16 @@ void GitController::runNext()
     if (m_queue.isEmpty()) {
         m_busy = false;
         if (m_state == State::Running || m_state == State::Refreshing) setState(State::Idle);
+        // Apply a repo switch the user requested while we were busy. Done
+        // before honoring m_refreshScheduled so a stale refresh of the old
+        // repo doesn't race with the switch.
+        if (!m_pendingRepoSwitch.isEmpty() && m_pendingRepoSwitch != m_currentRepo) {
+            const QString target = m_pendingRepoSwitch;
+            m_pendingRepoSwitch.clear();
+            applySelectRepo(target);
+            return;
+        }
+        m_pendingRepoSwitch.clear();
         if (m_refreshScheduled) {
             m_refreshScheduled = false;
             refresh();
@@ -522,8 +556,16 @@ void GitController::handleRefsDone(const QByteArray &out)
 
 void GitController::handleStatusDone(const QByteArray &out)
 {
-    m_status->setEntries(GitStatusParser::parsePorcelainV2(out));
+    GitStatusParser::Header hdr;
+    m_status->setEntries(GitStatusParser::parsePorcelainV2(out, &hdr));
+    // Emit only when something actually changed — saves a UI repaint per refresh.
+    const bool changed = (hdr.ahead != m_ahead) || (hdr.behind != m_behind)
+                         || (hdr.hasUpstream != m_hasUpstream);
+    m_ahead = hdr.ahead;
+    m_behind = hdr.behind;
+    m_hasUpstream = hdr.hasUpstream;
     emit statusUpdated();
+    if (changed) emit aheadBehindChanged(m_ahead, m_behind, m_hasUpstream);
     enqueueNumstatRefresh();
 }
 

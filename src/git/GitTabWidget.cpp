@@ -147,6 +147,20 @@ void GitTabWidget::buildUi()
     m_branchBtn->setPopupMode(QToolButton::InstantPopup);
     m_branchBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
 
+    // Sync indicators — hidden until ahead/behind > 0. Same visual weight as
+    // the branch button so they slot into the top row without looking out of
+    // place. Tooltips are filled by onAheadBehindChanged() so the user sees
+    // the exact count without needing to read the label.
+    m_pullBtn = new QToolButton(this);
+    m_pullBtn->setObjectName(QStringLiteral("gitPullBtn"));
+    m_pullBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    m_pullBtn->setVisible(false);
+
+    m_pushBtn = new QToolButton(this);
+    m_pushBtn->setObjectName(QStringLiteral("gitPushBtn"));
+    m_pushBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    m_pushBtn->setVisible(false);
+
     m_refreshBtn = new QToolButton(this);
     m_refreshBtn->setText(tr("⟳"));
     m_refreshBtn->setToolTip(tr("Refresh"));
@@ -158,6 +172,8 @@ void GitTabWidget::buildUi()
 
     topRow->addWidget(m_repoCombo, 1);
     topRow->addWidget(m_branchBtn);
+    topRow->addWidget(m_pullBtn);
+    topRow->addWidget(m_pushBtn);
     topRow->addWidget(m_refreshBtn);
     topRow->addWidget(m_menuBtn);
     root->addLayout(topRow);
@@ -211,6 +227,14 @@ void GitTabWidget::buildUi()
     connect(m_refreshBtn, &QToolButton::clicked, this, &GitTabWidget::onRefreshClicked);
     connect(m_branchBtn, &QToolButton::clicked, this, &GitTabWidget::onBranchButtonClicked);
     connect(m_menuBtn, &QToolButton::clicked, this, &GitTabWidget::onMenuButtonClicked);
+    // Sync buttons drive the existing controller ops. ff-only pull is the
+    // safe default — matches the "Pull" entry in the More-actions menu.
+    connect(m_pushBtn, &QToolButton::clicked, this, [this]() {
+        if (m_controller) m_controller->push();
+    });
+    connect(m_pullBtn, &QToolButton::clicked, this, [this]() {
+        if (m_controller) m_controller->pull(/*rebase=*/false);
+    });
     connect(m_errorCloseBtn, &QToolButton::clicked, this, &GitTabWidget::clearError);
 
     // ChangesPanel wiring — translate user actions into controller calls.
@@ -298,6 +322,8 @@ void GitTabWidget::rebuildController()
     m_branchBtn->setEnabled(false);
     m_refreshBtn->setEnabled(hasWorkspace);
     m_menuBtn->setEnabled(false);
+    if (m_pullBtn) m_pullBtn->setVisible(false);
+    if (m_pushBtn) m_pushBtn->setVisible(false);
     if (m_changesPanel && m_changesPanel->composer()) {
         m_changesPanel->composer()->setSubmitEnabled(false);
     }
@@ -320,6 +346,8 @@ void GitTabWidget::rebuildController()
     connect(m_controller, &GitController::stateChanged, this, &GitTabWidget::onControllerState);
     connect(m_controller, &GitController::statusUpdated, this, &GitTabWidget::onStatusUpdated);
     connect(m_controller, &GitController::branchesUpdated, this, &GitTabWidget::onBranchesUpdated);
+    connect(m_controller, &GitController::aheadBehindChanged,
+            this, &GitTabWidget::onAheadBehindChanged);
     connect(m_controller, &GitController::reposUpdated, this, &GitTabWidget::onReposUpdated);
     connect(m_controller, &GitController::opSucceeded, this, &GitTabWidget::onOpSucceeded);
     connect(m_controller, &GitController::commitSucceeded, this, &GitTabWidget::onCommitSucceeded);
@@ -445,6 +473,41 @@ void GitTabWidget::onRefreshClicked()
 void GitTabWidget::onBranchesUpdated()
 {
     updateBranchButtonText();
+    updateActionsEnabled();
+}
+
+void GitTabWidget::onAheadBehindChanged(int ahead, int behind, bool hasUpstream)
+{
+    // Hide both when no upstream is configured (push/pull would need
+    // arguments the user hasn't provided; the More-actions menu still
+    // exposes those flows).
+    if (!hasUpstream) {
+        if (m_pullBtn) m_pullBtn->setVisible(false);
+        if (m_pushBtn) m_pushBtn->setVisible(false);
+        return;
+    }
+    if (m_pullBtn) {
+        if (behind > 0) {
+            m_pullBtn->setText(QStringLiteral("↓%1").arg(behind));
+            m_pullBtn->setToolTip(tr("%n commit(s) behind upstream — click to pull",
+                                      nullptr, behind));
+            m_pullBtn->setVisible(true);
+        } else {
+            m_pullBtn->setVisible(false);
+        }
+    }
+    if (m_pushBtn) {
+        if (ahead > 0) {
+            m_pushBtn->setText(QStringLiteral("↑%1").arg(ahead));
+            m_pushBtn->setToolTip(tr("%n commit(s) ahead of upstream — click to push",
+                                      nullptr, ahead));
+            m_pushBtn->setVisible(true);
+        } else {
+            m_pushBtn->setVisible(false);
+        }
+    }
+    // Busy gating is handled by updateActionsEnabled — re-run so the buttons
+    // start disabled if an op is currently in flight when this fires.
     updateActionsEnabled();
 }
 
@@ -695,6 +758,8 @@ void GitTabWidget::onGitMissing()
     m_repoCombo->setEnabled(false);
     m_branchBtn->setEnabled(false);
     m_menuBtn->setEnabled(false);
+    if (m_pullBtn) m_pullBtn->setVisible(false);
+    if (m_pushBtn) m_pushBtn->setVisible(false);
 }
 
 void GitTabWidget::onDirtyTreePrompt(const QString &target)
@@ -733,6 +798,15 @@ void GitTabWidget::updateActionsEnabled()
 
     m_branchBtn->setEnabled(hasRepo && !empty);
     m_menuBtn->setEnabled(hasRepo);
+
+    // Sync buttons follow the same busy/repo gating as other top-row actions.
+    // Visibility is owned by onAheadBehindChanged — this only toggles enabled.
+    const bool busy = hasController && (
+        m_controller->state() == GitController::State::Running ||
+        m_controller->state() == GitController::State::Refreshing ||
+        m_controller->state() == GitController::State::Discovering);
+    if (m_pushBtn) m_pushBtn->setEnabled(hasRepo && !empty && !busy);
+    if (m_pullBtn) m_pullBtn->setEnabled(hasRepo && !empty && !busy);
 
     if (m_changesPanel) {
         m_changesPanel->updateActionsEnabled(hasRepo, hasConflicts,

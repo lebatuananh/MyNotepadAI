@@ -74,6 +74,7 @@ private slots:
     void onControllerState(GitController::State s);
     void onStatusUpdated();
     void onBranchesUpdated();
+    void onAheadBehindChanged(int ahead, int behind, bool hasUpstream);
     void onReposUpdated();
     void onOpSucceeded(const QString &name);
     void onCommitSucceeded();
@@ -119,6 +120,10 @@ private:
     // Header row.
     QComboBox *m_repoCombo = nullptr;
     QToolButton *m_branchBtn = nullptr;
+    // Sync indicators — both hidden by default. Visible when controller
+    // reports ahead/behind > 0; click pushes / pulls.
+    QToolButton *m_pullBtn = nullptr;     // "↓N" — visible when behind > 0
+    QToolButton *m_pushBtn = nullptr;     // "↑N" — visible when ahead  > 0
     QToolButton *m_refreshBtn = nullptr;
     QToolButton *m_menuBtn = nullptr;
 

@@ -23,8 +23,14 @@
 
 #include <QByteArray>
 
-// Parses the output of `git status --porcelain=v2 -z --untracked-files=all --renames`.
+// Parses the output of `git status --porcelain=v2 --branch -z --untracked-files=all --renames`.
 // The -z flag makes paths nul-terminated and unquoted (no octal escapes).
+//
+// Header lines (with --branch):
+//   "# branch.oid <oid>"
+//   "# branch.head <name>"
+//   "# branch.upstream <upstream>"     (only when an upstream is configured)
+//   "# branch.ab +<ahead> -<behind>"   (only when an upstream is configured)
 //
 // Record types:
 //   "1 XY sub mH mI mW hH hI path"                      ordinary changed
@@ -35,7 +41,16 @@
 class GitStatusParser
 {
 public:
-    static GitStatusEntries parsePorcelainV2(const QByteArray &nulSeparated);
+    struct Header {
+        int  ahead       = 0;
+        int  behind      = 0;
+        bool hasUpstream = false;
+    };
+
+    // If `header` is non-null, ahead/behind/upstream presence are extracted
+    // from "# branch.*" lines. Pass nullptr if you only care about entries.
+    static GitStatusEntries parsePorcelainV2(const QByteArray &nulSeparated,
+                                              Header *header = nullptr);
 
     // Public for tests.
     static GitStatusEntry::Change xyToChange(char x, char y, bool stagedSide);

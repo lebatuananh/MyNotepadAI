@@ -20,6 +20,8 @@
 
 #include <QList>
 
+#include <cstring>
+
 namespace {
 
 // Split on first N spaces, returning the trailing chunk verbatim. For porcelain
@@ -88,7 +90,8 @@ GitStatusEntry::Change GitStatusParser::xyToChange(char x, char y, bool stagedSi
     }
 }
 
-GitStatusEntries GitStatusParser::parsePorcelainV2(const QByteArray &input)
+GitStatusEntries GitStatusParser::parsePorcelainV2(const QByteArray &input,
+                                                    Header *header)
 {
     GitStatusEntries result;
 
@@ -182,7 +185,30 @@ GitStatusEntries GitStatusParser::parsePorcelainV2(const QByteArray &input)
                                     QStringLiteral("??")));
         }
         else if (marker == '#' || marker == '!') {
-            // header line or ignored — drop
+            // '!' = ignored — drop. '#' = porcelain v2 branch header (only
+            // present with --branch). Extract upstream + ahead/behind if a
+            // caller asked for the header.
+            if (marker == '#' && header) {
+                // Field layout: "# branch.<key> <value...>"
+                if (rec.startsWith(QByteArrayLiteral("# branch.upstream "))) {
+                    header->hasUpstream = true;
+                } else if (rec.startsWith(QByteArrayLiteral("# branch.ab "))) {
+                    // "+<ahead> -<behind>" — parse two signed integers.
+                    const QByteArray rest = rec.mid(qsizetype(strlen("# branch.ab ")));
+                    int space = rest.indexOf(' ');
+                    if (space > 0 && rest.at(0) == '+' && space + 1 < rest.size()
+                        && rest.at(space + 1) == '-') {
+                        const QByteArray ah = rest.mid(1, space - 1);
+                        const QByteArray be = rest.mid(space + 2);
+                        bool okA = false, okB = false;
+                        const int a = ah.toInt(&okA);
+                        const int b = be.toInt(&okB);
+                        if (okA) header->ahead  = a;
+                        if (okB) header->behind = b;
+                        header->hasUpstream = true;
+                    }
+                }
+            }
             continue;
         }
     }

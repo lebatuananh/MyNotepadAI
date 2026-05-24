@@ -371,7 +371,7 @@ void AcpSessionModel::schedulePersistIfNeeded()
 }
 
 void AcpSessionModel::onInitialized(const AcpAgentInfo &info,
-                                    const QStringList &availableCommands,
+                                    const QList<AcpCommandInfo> &availableCommands,
                                     const QList<AcpModeInfo> &modes,
                                     const QString &currentMode,
                                     const QList<AcpModelInfo> &models,
@@ -430,11 +430,19 @@ void AcpSessionModel::onMessageChunk(const QString &text)
             // the same assistant message. Treat that as an in-place rewrite
             // so the bubble shows only the completion text instead of both
             // lines stacked.
+            //
+            // Codex CLI variant: first chunk is "Context compacted\n", second
+            // chunk is a warning. Rewrite the bubble to show both lines
+            // cleanly without the trailing \n on the first.
             const QString &existing = msg.content.first().text;
             const QLatin1String kPlaceholder("Compacting...");
             const QLatin1String kCompletionPrefix("\n\nCompacting completed.");
+            const QLatin1String kCodexCompacted("Context compacted\n");
             if (existing == kPlaceholder && text.startsWith(kCompletionPrefix)) {
                 msg.content.first().text = text.mid(2); // strip leading "\n\n"
+                emit messageReplaced(idx, msg.content.first().text);
+            } else if (existing == kCodexCompacted) {
+                msg.content.first().text = QStringLiteral("Context compacted\n\n") + text;
                 emit messageReplaced(idx, msg.content.first().text);
             } else {
                 msg.content.first().text.append(text);
@@ -562,7 +570,7 @@ void AcpSessionModel::onPlanReceived(const QList<AcpPlanEntry> &plan)
     schedulePersistIfNeeded();
 }
 
-void AcpSessionModel::onAvailableCommandsUpdated(const QStringList &commands)
+void AcpSessionModel::onAvailableCommandsUpdated(const QList<AcpCommandInfo> &commands)
 {
     m_availableCommands = commands;
     emit availableCommandsChanged();

@@ -45,6 +45,7 @@
 #include <QImage>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QListWidget>
 #include <QMimeData>
 #include <QPainter>
 #include <QPalette>
@@ -108,10 +109,13 @@ public:
     }
 
     std::function<void()> onSubmit;
+    std::function<bool(QKeyEvent *)> onKeyFilter;
 
 protected:
     void keyPressEvent(QKeyEvent *event) override
     {
+        if (onKeyFilter && onKeyFilter(event))
+            return;
         if ((event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter)
             && !(event->modifiers() & Qt::ShiftModifier)) {
             if (onSubmit) onSubmit();
@@ -396,9 +400,43 @@ void AcpSessionView::buildUi()
     // 6. Input.
     auto *cb = new ChatInputEditCb(m_attachmentList, this);
     cb->onSubmit = [this]() { onSendClicked(); };
+    cb->onKeyFilter = [this](QKeyEvent *ke) -> bool {
+        if (!m_commandPopup || !m_commandPopup->isVisible())
+            return false;
+        switch (ke->key()) {
+        case Qt::Key_Up:
+            if (m_commandPopup->currentRow() > 0)
+                m_commandPopup->setCurrentRow(m_commandPopup->currentRow() - 1);
+            return true;
+        case Qt::Key_Down:
+            if (m_commandPopup->currentRow() < m_commandPopup->count() - 1)
+                m_commandPopup->setCurrentRow(m_commandPopup->currentRow() + 1);
+            return true;
+        case Qt::Key_Return:
+        case Qt::Key_Enter:
+        case Qt::Key_Tab:
+            acceptCommandCompletion();
+            return true;
+        case Qt::Key_Escape:
+            hideCommandPopup();
+            return true;
+        case Qt::Key_Space:
+            acceptCommandCompletion();
+            return true;
+        default:
+            return false;
+        }
+    };
     cb->setMaximumHeight(120);
     m_input = cb;
     outer->addWidget(m_input);
+
+    // Slash-command completion popup (frameless, positioned above input).
+    m_commandPopup = new QListWidget(this);
+    m_commandPopup->setWindowFlags(Qt::ToolTip);
+    m_commandPopup->setFocusPolicy(Qt::NoFocus);
+    m_commandPopup->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_commandPopup->hide();
 
     // 7. Button row + usage. Attach is a secondary chrome action — render it
     // as an icon-only flat tool-button so Send remains the only prominent
@@ -470,6 +508,7 @@ void AcpSessionView::buildUi()
     connect(m_input, &QPlainTextEdit::textChanged, this, [this]() {
         const bool hasContent = !m_input->toPlainText().trimmed().isEmpty() || m_attachmentList->isNonEmpty();
         m_sendBtn->setEnabled(hasContent && (!m_model || !m_model->isProcessing()));
+        filterCommandPopup();
     });
     connect(m_attachmentList, &AcpImageAttachmentList::contentsChanged, this, [this]() {
         const bool hasContent = !m_input->toPlainText().trimmed().isEmpty() || m_attachmentList->isNonEmpty();
@@ -1544,4 +1583,84 @@ bool AcpSessionView::inputKeyEventIsSubmit(QKeyEvent *ke) const
 {
     return (ke->key() == Qt::Key_Return || ke->key() == Qt::Key_Enter)
            && !(ke->modifiers() & Qt::ShiftModifier);
+}
+
+void AcpSessionView::showCommandPopup()
+{
+    if (!m_commandPopup || !m_model) return;
+    const auto &cmds = m_model->availableCommands();
+    if (cmds.isEmpty()) { hideCommandPopup(); return; }
+
+    m_commandPopup->clear();
+    for (const auto &cmd : cmds) {
+        QString label = QStringLiteral("/") + cmd.name;
+        if (!cmd.description.isEmpty())
+            label += QStringLiteral("  ") + cmd.description;
+        auto *item = new QListWidgetItem(label, m_commandPopup);
+        item->setData(Qt::UserRole, cmd.name);
+    }
+    m_commandPopup->setCurrentRow(0);
+
+    const int rowH = m_commandPopup->sizeHintForRow(0);
+    const int visibleRows = qMin(cmds.size(), 8);
+    const int popupH = rowH * visibleRows + 4;
+    const QPoint inputTopLeft = m_input->mapToGlobal(QPoint(0, 0));
+    m_commandPopup->setGeometry(inputTopLeft.x(), inputTopLeft.y() - popupH,
+                                m_input->width(), popupH);
+    m_commandPopup->show();
+}
+
+void AcpSessionView::hideCommandPopup()
+{
+    if (m_commandPopup) m_commandPopup->hide();
+}
+
+void AcpSessionView::filterCommandPopup()
+{
+    if (!m_input || !m_model) { hideCommandPopup(); return; }
+    const QString text = m_input->toPlainText();
+
+    if (!text.startsWith(QLatin1Char('/')) || text.contains(QLatin1Char('\n'))) {
+        hideCommandPopup();
+        return;
+    }
+
+    const auto &cmds = m_model->availableCommands();
+    if (cmds.isEmpty()) { hideCommandPopup(); return; }
+
+    const QString prefix = text.mid(1).toLower();
+
+    if (!m_commandPopup->isVisible()) {
+        showCommandPopup();
+    }
+
+    int firstVisible = -1;
+    for (int i = 0; i < m_commandPopup->count(); ++i) {
+        auto *item = m_commandPopup->item(i);
+        const QString name = item->data(Qt::UserRole).toString();
+        const bool match = prefix.isEmpty() || name.toLower().startsWith(prefix);
+        item->setHidden(!match);
+        if (match && firstVisible < 0) firstVisible = i;
+    }
+
+    if (firstVisible < 0) {
+        hideCommandPopup();
+    } else {
+        if (m_commandPopup->currentItem() && m_commandPopup->currentItem()->isHidden())
+            m_commandPopup->setCurrentRow(firstVisible);
+    }
+}
+
+void AcpSessionView::acceptCommandCompletion()
+{
+    if (!m_commandPopup || !m_commandPopup->isVisible()) return;
+    auto *item = m_commandPopup->currentItem();
+    if (!item || item->isHidden()) { hideCommandPopup(); return; }
+
+    const QString name = item->data(Qt::UserRole).toString();
+    m_input->setPlainText(QStringLiteral("/") + name + QStringLiteral(" "));
+    QTextCursor cur = m_input->textCursor();
+    cur.movePosition(QTextCursor::End);
+    m_input->setTextCursor(cur);
+    hideCommandPopup();
 }

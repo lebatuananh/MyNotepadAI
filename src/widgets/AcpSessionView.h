@@ -46,6 +46,7 @@ class QComboBox;
 class QDialog;
 class QFrame;
 class QLabel;
+class QListWidget;
 class QPlainTextEdit;
 class QPushButton;
 class QScrollArea;
@@ -157,10 +158,13 @@ private:
     // populates the available catalogs.
     void applySavedPreferences();
 
-    // Apply the user's Default Font (ApplicationSettings::fontName/fontSize)
-    // to the transcript host + input. Chrome (banner, selectors, buttons)
-    // stays on the system font.
     void applyChatFont();
+
+    // Slash-command completion popup.
+    void showCommandPopup();
+    void hideCommandPopup();
+    void filterCommandPopup();
+    void acceptCommandCompletion();
 
     AcpSessionModel *m_model = nullptr;       // non-owning
     AcpConnection *m_connection = nullptr;    // non-owning
@@ -247,6 +251,9 @@ private:
     // user-derived flag.
     bool m_stickToBottom = true;
     bool m_programmaticScroll = false;
+
+    // Slash-command completion
+    QListWidget *m_commandPopup = nullptr;
 };
 
 #endif // ACP_SESSION_VIEW_H

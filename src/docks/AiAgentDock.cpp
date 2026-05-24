@@ -213,8 +213,12 @@ void AiAgentDock::refreshTitle()
     }
 
     QString resolvedAgentName = m_agentName;
-    if (m_model && !m_model->agentInfo().name.isEmpty()) {
-        resolvedAgentName = m_model->agentInfo().name;
+    if (m_model) {
+        const auto &info = m_model->agentInfo();
+        if (!info.title.isEmpty())
+            resolvedAgentName = info.title;
+        else if (!info.name.isEmpty())
+            resolvedAgentName = info.name;
     }
 
     if (resolvedAgentName.isEmpty()) {

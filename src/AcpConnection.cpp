@@ -291,7 +291,19 @@ void AcpConnection::sendNewSession()
 
                     m_availableCommands.clear();
                     for (const auto &v : r.value(QStringLiteral("availableCommands")).toArray()) {
-                        m_availableCommands.append(v.toString());
+                        AcpProtocol::AcpCommandInfo cmd;
+                        if (v.isObject()) {
+                            const QJsonObject o = v.toObject();
+                            cmd.name = o.value(QStringLiteral("name")).toString();
+                            cmd.description = o.value(QStringLiteral("description")).toString();
+                            const QJsonValue inp = o.value(QStringLiteral("input"));
+                            if (inp.isObject())
+                                cmd.inputHint = inp.toObject().value(QStringLiteral("hint")).toString();
+                        } else {
+                            cmd.name = v.toString();
+                        }
+                        if (!cmd.name.isEmpty())
+                            m_availableCommands.append(cmd);
                     }
 
                     // ACP V1: modes/models are nested objects; older agents
@@ -725,9 +737,21 @@ void AcpConnection::handleInboundNotification(const QString &method, const QJson
         }
         emit planReceived(plan);
     } else if (kind == QLatin1String("available_commands_update")) {
-        QStringList cmds;
+        QList<AcpProtocol::AcpCommandInfo> cmds;
         for (const auto &v : update.value(QStringLiteral("availableCommands")).toArray()) {
-            cmds.append(v.toString());
+            AcpProtocol::AcpCommandInfo cmd;
+            if (v.isObject()) {
+                const QJsonObject o = v.toObject();
+                cmd.name = o.value(QStringLiteral("name")).toString();
+                cmd.description = o.value(QStringLiteral("description")).toString();
+                const QJsonValue inp = o.value(QStringLiteral("input"));
+                if (inp.isObject())
+                    cmd.inputHint = inp.toObject().value(QStringLiteral("hint")).toString();
+            } else {
+                cmd.name = v.toString();
+            }
+            if (!cmd.name.isEmpty())
+                cmds.append(cmd);
         }
         emit availableCommandsUpdated(cmds);
     } else if (kind == QLatin1String("current_mode_update")) {

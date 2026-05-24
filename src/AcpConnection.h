@@ -93,7 +93,7 @@ public slots:
 
 signals:
     void initialized(const AcpProtocol::AcpAgentInfo &info,
-                     const QStringList &availableCommands,
+                     const QList<AcpProtocol::AcpCommandInfo> &availableCommands,
                      const QList<AcpProtocol::AcpModeInfo> &modes,
                      const QString &currentMode,
                      const QList<AcpProtocol::AcpModelInfo> &models,
@@ -106,7 +106,7 @@ signals:
     void toolCallReceived(const AcpProtocol::AcpToolCall &call);
     void toolCallUpdated(const AcpProtocol::AcpToolCallUpdate &update);
     void planReceived(const QList<AcpProtocol::AcpPlanEntry> &plan);
-    void availableCommandsUpdated(const QStringList &commands);
+    void availableCommandsUpdated(const QList<AcpProtocol::AcpCommandInfo> &commands);
     void currentModeChanged(const QString &id);
     void configOptionsUpdated(const QList<AcpProtocol::AcpConfigOption> &options);
     void usageUpdated(const AcpProtocol::AcpUsage &usage);
@@ -206,7 +206,7 @@ private:
     QString m_sessionId;
     AcpProtocol::AcpAgentInfo m_agentInfo;
     AcpProtocol::AcpCapabilities m_capabilities;
-    QStringList m_availableCommands;
+    QList<AcpProtocol::AcpCommandInfo> m_availableCommands;
     QList<AcpProtocol::AcpModeInfo> m_modes;
     QString m_currentMode;
     QList<AcpProtocol::AcpModelInfo> m_models;

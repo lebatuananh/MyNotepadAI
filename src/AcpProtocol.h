@@ -158,6 +158,13 @@ struct AcpAgentInfo
     QString version;
 };
 
+struct AcpCommandInfo
+{
+    QString name;
+    QString description;
+    QString inputHint;
+};
+
 struct AcpCapabilities
 {
     bool fsReadTextFile{false};

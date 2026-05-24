@@ -102,7 +102,7 @@ public:
     const QHash<QString, AcpProtocol::AcpToolCall> &toolCalls() const { return m_toolCalls; }
     const QVector<AcpTimelineEntry> &timeline() const { return m_timeline; }
     const std::optional<AcpProtocol::AcpUsage> &usage() const { return m_usage; }
-    const QStringList &availableCommands() const { return m_availableCommands; }
+    const QList<AcpProtocol::AcpCommandInfo> &availableCommands() const { return m_availableCommands; }
     const QList<AcpProtocol::AcpModeInfo> &availableModes() const { return m_availableModes; }
     QString currentModeId() const { return m_currentModeId; }
     const QList<AcpProtocol::AcpModelInfo> &availableModels() const { return m_availableModels; }
@@ -121,7 +121,7 @@ public:
 public slots:
     // -- Hooks for AcpConnection signals (Group 4 wires these up). ---------
     void onInitialized(const AcpProtocol::AcpAgentInfo &info,
-                       const QStringList &availableCommands,
+                       const QList<AcpProtocol::AcpCommandInfo> &availableCommands,
                        const QList<AcpProtocol::AcpModeInfo> &modes,
                        const QString &currentMode,
                        const QList<AcpProtocol::AcpModelInfo> &models,
@@ -132,7 +132,7 @@ public slots:
     void onToolCallReceived(const AcpProtocol::AcpToolCall &tc);
     void onToolCallUpdated(const AcpProtocol::AcpToolCallUpdate &update);
     void onPlanReceived(const QList<AcpProtocol::AcpPlanEntry> &plan);
-    void onAvailableCommandsUpdated(const QStringList &commands);
+    void onAvailableCommandsUpdated(const QList<AcpProtocol::AcpCommandInfo> &commands);
     void onCurrentModeChanged(const QString &modeId);
     void onConfigOptionsUpdated(const QList<AcpProtocol::AcpConfigOption> &options);
     void onUsageUpdated(const AcpProtocol::AcpUsage &usage);
@@ -187,7 +187,7 @@ private:
 
     int m_currentGroupId = 0;
     std::optional<AcpProtocol::AcpUsage> m_usage;
-    QStringList m_availableCommands;
+    QList<AcpProtocol::AcpCommandInfo> m_availableCommands;
     QList<AcpProtocol::AcpModeInfo> m_availableModes;
     QString m_currentModeId;
     QList<AcpProtocol::AcpModelInfo> m_availableModels;

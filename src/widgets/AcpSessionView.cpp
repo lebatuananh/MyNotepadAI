@@ -939,6 +939,33 @@ void AcpSessionView::onMetadataChanged()
     // Once the agent's catalogs have arrived, push any saved per-agent
     // selections back into the session (one-shot per session).
     applySavedPreferences();
+
+    // After the initial restore, persist any agent-side config changes
+    // (e.g. Codex CLI's config_option_update for model/mode/effort) so the
+    // next session/new picks them up.
+    if (m_savedPrefsApplied && m_registry && m_connection) {
+        const QString agentId = m_connection->definition().id;
+        if (!agentId.isEmpty()) {
+            const QString curModel = m_model->currentModelId();
+            if (!curModel.isEmpty())
+                m_registry->setAgentPreference(agentId, QStringLiteral("model"), curModel);
+
+            const QString curMode = m_model->currentModeId();
+            if (!curMode.isEmpty())
+                m_registry->setAgentPreference(agentId, QStringLiteral("mode"), curMode);
+
+            if (!m_effortConfigOptionId.isEmpty()) {
+                for (const auto &opt : m_model->configOptions()) {
+                    if (opt.id == m_effortConfigOptionId) {
+                        const QString val = opt.currentValue.toString();
+                        if (!val.isEmpty())
+                            m_registry->setAgentPreference(agentId, m_effortConfigOptionId, val);
+                        break;
+                    }
+                }
+            }
+        }
+    }
 }
 
 void AcpSessionView::onCurrentModeChanged(const QString &modeId)

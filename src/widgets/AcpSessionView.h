@@ -69,6 +69,7 @@ public:
 
     void setBanner(const QString &text, BannerKind kind);
     void clearBanner();
+    void insertTextToInput(const QString &text);
 
     // Detach from the current model + connection and re-attach to a new pair
     // (typically after AcpAgentManager::restartSession). Clears the

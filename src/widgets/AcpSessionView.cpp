@@ -929,6 +929,14 @@ void AcpSessionView::onErrorOccurred(AcpErrorClassifier::AcpErrorKind kind, cons
     setBanner(friendly, bk);
 }
 
+void AcpSessionView::insertTextToInput(const QString &text)
+{
+    if (!m_input) return;
+    m_input->moveCursor(QTextCursor::End);
+    m_input->insertPlainText(text);
+    m_input->setFocus();
+}
+
 void AcpSessionView::onSendClicked()
 {
     if (!m_connection || !m_model) return;

@@ -1,8 +1,6 @@
 # NotepadAI unit tests.
 # Enabled via -DNOTEPADAI_BUILD_TESTS=ON
 
-qt_standard_project_setup()
-
 # --- Theme resolver: pure header, no Qt runtime needed beyond core enums ---
 qt_add_executable(test_theme_resolver test_theme_resolver.cpp)
 target_include_directories(test_theme_resolver PRIVATE ${CMAKE_SOURCE_DIR}/src)

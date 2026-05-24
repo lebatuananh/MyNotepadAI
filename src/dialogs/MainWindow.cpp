@@ -2728,6 +2728,57 @@ void MainWindow::addEditor(ScintillaNext *editor)
         menu->addMenu(ui->menuMarkAllOccurrences);
         menu->addMenu(ui->menuClearMarks);
 
+        // "Send to AI" — prepend when text is selected and an AI dock exists.
+        const bool hasSelection = editor->selectionStart() != editor->selectionEnd();
+        AiAgentDock *targetDock = nullptr;
+        if (hasSelection) {
+            const auto docks = findChildren<AiAgentDock *>();
+            for (auto *d : docks) {
+                if (d->isVisible()) {
+                    targetDock = d;
+                    break;
+                }
+            }
+            if (!targetDock && !docks.isEmpty()) {
+                targetDock = docks.first();
+            }
+        }
+        if (targetDock) {
+            auto *sendToAi = new QAction(tr("Send to AI"), menu);
+            connect(sendToAi, &QAction::triggered, this, [this, editor, targetDock]() {
+                const sptr_t selStart = editor->selectionStart();
+                const sptr_t selEnd = editor->selectionEnd();
+                const int lineStart = static_cast<int>(editor->lineFromPosition(selStart)) + 1;
+                const int lineEnd = static_cast<int>(editor->lineFromPosition(selEnd)) + 1;
+
+                QString mention;
+                if (editor->isFile()) {
+                    QString filePath = editor->getFilePath();
+                    const QString wsRoot = currentWorkspaceRoot();
+                    if (!wsRoot.isEmpty() && filePath.startsWith(wsRoot)) {
+                        filePath = filePath.mid(wsRoot.length());
+                        if (filePath.startsWith(QLatin1Char('/')) || filePath.startsWith(QLatin1Char('\\')))
+                            filePath = filePath.mid(1);
+                    }
+                    if (lineStart == lineEnd) {
+                        mention = QStringLiteral("@%1#L%2").arg(filePath).arg(lineStart);
+                    } else {
+                        mention = QStringLiteral("@%1#L%2-%3").arg(filePath).arg(lineStart).arg(lineEnd);
+                    }
+                }
+
+                QString text;
+                if (!mention.isEmpty()) {
+                    text = mention + QStringLiteral("\n");
+                }
+                targetDock->insertTextToInput(text);
+                targetDock->setVisible(true);
+                targetDock->raise();
+            });
+            menu->insertAction(menu->actions().isEmpty() ? nullptr : menu->actions().first(), sendToAi);
+            menu->insertSeparator(menu->actions().at(1));
+        }
+
         menu->popup(QCursor::pos());
     });
 

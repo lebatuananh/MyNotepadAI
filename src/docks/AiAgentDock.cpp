@@ -206,3 +206,10 @@ void AiAgentDock::refreshTitle()
         setWindowTitle(tr("AI — %1 (%2)").arg(workspaceName, resolvedAgentName));
     }
 }
+
+void AiAgentDock::insertTextToInput(const QString &text)
+{
+    if (m_view) {
+        m_view->insertTextToInput(text);
+    }
+}

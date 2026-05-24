@@ -58,6 +58,7 @@ public:
     AcpSessionModel *model() const { return m_model; }
     AcpConnection *connection() const { return m_connection; }
     QString workingDirectory() const { return m_workingDirectory; }
+    void insertTextToInput(const QString &text);
 
     // Replace the dock's inner session model + connection without destroying
     // the dock itself. The dock widget, its dock area, and its on-screen

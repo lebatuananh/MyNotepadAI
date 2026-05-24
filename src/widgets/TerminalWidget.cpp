@@ -37,9 +37,11 @@
 #include <QPainter>
 #include <QResizeEvent>
 #include <QScrollBar>
+#include <QWheelEvent>
 #include <QtMath>
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 
 namespace {
@@ -118,6 +120,12 @@ TerminalWidget::TerminalWidget(QWidget *parent)
         sb->setPageStep(m_rows);
         sb->setRange(0, 0);
     }
+
+    m_batchTimer = new QTimer(this);
+    m_batchTimer->setSingleShot(true);
+    m_batchTimer->setInterval(0);
+    connect(m_batchTimer, &QTimer::timeout, this, &TerminalWidget::processPendingInput);
+
     recomputeMetrics();
 }
 
@@ -206,6 +214,14 @@ int TerminalWidget::vtermSetTermProp(VTermProp prop, VTermValue *val, void *user
     if (prop == VTERM_PROP_ALTSCREEN && val) {
         w->m_altScreen = val->boolean != 0;
         w->viewport()->update();
+        return 1;
+    }
+    if (prop == VTERM_PROP_MOUSE && val) {
+        w->m_mouseMode = val->number;
+        return 1;
+    }
+    if (prop == VTERM_PROP_FOCUSREPORT && val) {
+        w->m_focusReporting = val->boolean != 0;
         return 1;
     }
     return 0;
@@ -379,6 +395,7 @@ bool TerminalWidget::start(const QString &shell, const QString &cwd)
     if (QIODevice *n = m_pty->notifier()) {
         connect(n, &QIODevice::readyRead, this, &TerminalWidget::onPtyReadyRead);
     }
+    connect(m_pty, &IPtyProcess::finished, this, &TerminalWidget::onPtyFinished);
 
     viewport()->update();
     return true;
@@ -400,6 +417,7 @@ void TerminalWidget::setTerminalFont(const QFont &font)
 
 bool TerminalWidget::isProcessRunning() const
 {
+    if (m_exited) return false;
     if (!m_pty) return false;
     return m_pty->pid() > 0;
 }
@@ -416,8 +434,49 @@ void TerminalWidget::onPtyReadyRead()
     if (!m_pty || !m_vt) return;
     const QByteArray data = m_pty->readAll();
     if (data.isEmpty()) return;
-    vterm_input_write(m_vt, data.constData(), static_cast<size_t>(data.size()));
+    m_pendingInput.append(data);
+    if (!m_batchTimer->isActive()) {
+        m_batchTimer->start();
+    }
+}
+
+void TerminalWidget::processPendingInput()
+{
+    if (!m_vt || m_pendingInput.isEmpty()) return;
+
+    static constexpr int kChunkSize = 16 * 1024;
+    static constexpr auto kMaxTime = std::chrono::milliseconds(4);
+
+    const auto start = std::chrono::steady_clock::now();
+    int offset = 0;
+    const int totalSize = static_cast<int>(m_pendingInput.size());
+
+    while (offset < totalSize) {
+        const int chunk = std::min(kChunkSize, totalSize - offset);
+        vterm_input_write(m_vt, m_pendingInput.constData() + offset, static_cast<size_t>(chunk));
+        offset += chunk;
+        if (std::chrono::steady_clock::now() - start > kMaxTime) {
+            break;
+        }
+    }
+
     vterm_screen_flush_damage(m_screen);
+    m_pendingInput.remove(0, offset);
+    viewport()->update();
+
+    if (!m_pendingInput.isEmpty()) {
+        m_batchTimer->start();
+    }
+}
+
+void TerminalWidget::onPtyFinished(int exitCode)
+{
+    m_exited = true;
+    m_exitCode = exitCode;
+    if (!m_pendingInput.isEmpty()) {
+        processPendingInput();
+    }
+    emit processExited(exitCode);
     viewport()->update();
 }
 
@@ -426,6 +485,22 @@ void TerminalWidget::writeToPty(const QByteArray &data)
     if (m_pty) {
         m_pty->write(data);
     }
+}
+
+bool TerminalWidget::isMouseReportingActive(Qt::KeyboardModifiers mods) const
+{
+    if (m_mouseMode == VTERM_PROP_MOUSE_NONE) return false;
+    if (mods & Qt::ShiftModifier) return false;
+    return true;
+}
+
+VTermModifier TerminalWidget::qtModsToVterm(Qt::KeyboardModifiers mods) const
+{
+    VTermModifier vmod = VTERM_MOD_NONE;
+    if (mods & Qt::ShiftModifier)   vmod = static_cast<VTermModifier>(vmod | VTERM_MOD_SHIFT);
+    if (mods & Qt::ControlModifier) vmod = static_cast<VTermModifier>(vmod | VTERM_MOD_CTRL);
+    if (mods & Qt::AltModifier)     vmod = static_cast<VTermModifier>(vmod | VTERM_MOD_ALT);
+    return vmod;
 }
 
 void TerminalWidget::recomputeMetrics()
@@ -482,8 +557,9 @@ void TerminalWidget::paintCell(QPainter &p, int viewportRow, int col, const VTer
 
     const int x = col * m_cellW;
     const int y = viewportRow * m_cellH;
+    const int cellSpan = std::max(1, static_cast<int>(cell.width));
 
-    p.fillRect(QRect(x, y, m_cellW, m_cellH), bg);
+    p.fillRect(QRect(x, y, m_cellW * cellSpan, m_cellH), bg);
 
     if (cell.chars[0]) {
         QString glyph;
@@ -541,7 +617,10 @@ void TerminalWidget::paintEvent(QPaintEvent *event)
             continue;
         }
         for (int col = 0; col < m_cols; ++col) {
-            paintCell(p, viewportRow, col, m_rowScratch[col]);
+            const auto &cell = m_rowScratch[col];
+            if (cell.width == 0) continue;
+            paintCell(p, viewportRow, col, cell);
+            if (cell.width > 1) col += cell.width - 1;
         }
     }
 
@@ -552,7 +631,9 @@ void TerminalWidget::paintEvent(QPaintEvent *event)
             if (!vterm_screen_get_cell(m_screen, pos, &cell)) {
                 continue;
             }
+            if (cell.width == 0) continue;
             paintCell(p, row, col, cell);
+            if (cell.width > 1) col += cell.width - 1;
         }
     }
 
@@ -611,6 +692,45 @@ void TerminalWidget::scrollContentsBy(int dx, int dy)
 
 bool TerminalWidget::event(QEvent *event)
 {
+    if (event->type() == QEvent::ShortcutOverride && m_vt && m_pty) {
+        QKeyEvent *ke = static_cast<QKeyEvent *>(event);
+        const int key = ke->key();
+        const auto mods = ke->modifiers() & ~Qt::KeypadModifier;
+
+        if (key == Qt::Key_Control || key == Qt::Key_Shift ||
+            key == Qt::Key_Alt || key == Qt::Key_Meta) {
+            return QAbstractScrollArea::event(event);
+        }
+
+        if (key >= Qt::Key_F1 && key <= Qt::Key_F35) {
+            return QAbstractScrollArea::event(event);
+        }
+
+        struct ShortcutEntry { Qt::KeyboardModifiers mods; int key; };
+        static constexpr ShortcutEntry appShortcuts[] = {
+            {Qt::ControlModifier, Qt::Key_S},
+            {Qt::ControlModifier, Qt::Key_N},
+            {Qt::ControlModifier, Qt::Key_O},
+            {Qt::ControlModifier, Qt::Key_W},
+            {Qt::ControlModifier, Qt::Key_Q},
+            {Qt::ControlModifier | Qt::ShiftModifier, Qt::Key_S},
+            {Qt::ControlModifier | Qt::ShiftModifier, Qt::Key_W},
+            {Qt::ControlModifier | Qt::ShiftModifier, Qt::Key_T},
+            {Qt::ControlModifier, Qt::Key_Tab},
+            {Qt::ControlModifier | Qt::ShiftModifier, Qt::Key_Tab},
+            {Qt::ControlModifier | Qt::ShiftModifier, Qt::Key_Backtab},
+        };
+
+        for (const auto &s : appShortcuts) {
+            if (mods == s.mods && key == s.key) {
+                return QAbstractScrollArea::event(event);
+            }
+        }
+
+        ke->accept();
+        return true;
+    }
+
     // Qt routes Tab/Backtab through focusNextPrevChild() in QWidget::event(),
     // so they never reach keyPressEvent unless we intercept here.
     if (event->type() == QEvent::KeyPress) {
@@ -681,6 +801,11 @@ void TerminalWidget::keyPressEvent(QKeyEvent *event)
         return;
     }
 
+    if ((mods & Qt::ControlModifier) && key >= Qt::Key_A && key <= Qt::Key_Z) {
+        vterm_keyboard_unichar(m_vt, static_cast<uint32_t>('a' + (key - Qt::Key_A)), vmod);
+        return;
+    }
+
     const QString text = event->text();
     if (!text.isEmpty()) {
         for (uint cp : text.toUcs4()) {
@@ -696,6 +821,24 @@ void TerminalWidget::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {
         setFocus(Qt::MouseFocusReason);
+    }
+
+    if (m_vt && isMouseReportingActive(event->modifiers())) {
+        const QPoint cell = pixelToCell(event->pos());
+        int button = 0;
+        if (event->button() == Qt::LeftButton)   button = 1;
+        else if (event->button() == Qt::MiddleButton) button = 2;
+        else if (event->button() == Qt::RightButton)  button = 3;
+        if (button > 0) {
+            VTermModifier vmod = qtModsToVterm(event->modifiers());
+            vterm_mouse_move(m_vt, cell.y(), cell.x(), vmod);
+            vterm_mouse_button(m_vt, button, true, vmod);
+        }
+        event->accept();
+        return;
+    }
+
+    if (event->button() == Qt::LeftButton) {
         m_selStart = pixelToAbsoluteCell(event->pos());
         m_selEnd = m_selStart;
         m_selecting = true;
@@ -713,6 +856,22 @@ void TerminalWidget::mousePressEvent(QMouseEvent *event)
 
 void TerminalWidget::mouseMoveEvent(QMouseEvent *event)
 {
+    if (m_vt && isMouseReportingActive(event->modifiers())) {
+        const QPoint cell = pixelToCell(event->pos());
+        bool shouldReport = false;
+        if (m_mouseMode == VTERM_PROP_MOUSE_MOVE) {
+            shouldReport = true;
+        } else if (m_mouseMode == VTERM_PROP_MOUSE_DRAG && (event->buttons() != Qt::NoButton)) {
+            shouldReport = true;
+        }
+        if (shouldReport) {
+            VTermModifier vmod = qtModsToVterm(event->modifiers());
+            vterm_mouse_move(m_vt, cell.y(), cell.x(), vmod);
+        }
+        event->accept();
+        return;
+    }
+
     if (m_selecting) {
         m_selEnd = pixelToAbsoluteCell(event->pos());
         m_hasSelection = (m_selStart != m_selEnd);
@@ -723,6 +882,21 @@ void TerminalWidget::mouseMoveEvent(QMouseEvent *event)
 
 void TerminalWidget::mouseReleaseEvent(QMouseEvent *event)
 {
+    if (m_vt && isMouseReportingActive(event->modifiers())) {
+        int button = 0;
+        if (event->button() == Qt::LeftButton)   button = 1;
+        else if (event->button() == Qt::MiddleButton) button = 2;
+        else if (event->button() == Qt::RightButton)  button = 3;
+        if (button > 0) {
+            const QPoint cell = pixelToCell(event->pos());
+            VTermModifier vmod = qtModsToVterm(event->modifiers());
+            vterm_mouse_move(m_vt, cell.y(), cell.x(), vmod);
+            vterm_mouse_button(m_vt, button, false, vmod);
+        }
+        event->accept();
+        return;
+    }
+
     if (event->button() == Qt::LeftButton && m_selecting) {
         m_selecting = false;
         m_selEnd = pixelToAbsoluteCell(event->pos());
@@ -741,6 +915,9 @@ void TerminalWidget::mouseReleaseEvent(QMouseEvent *event)
 void TerminalWidget::focusInEvent(QFocusEvent *event)
 {
     m_hasFocus = true;
+    if (m_focusReporting && m_pty) {
+        writeToPty(QByteArray("\x1b[I", 3));
+    }
     viewport()->update();
     QAbstractScrollArea::focusInEvent(event);
 }
@@ -748,8 +925,38 @@ void TerminalWidget::focusInEvent(QFocusEvent *event)
 void TerminalWidget::focusOutEvent(QFocusEvent *event)
 {
     m_hasFocus = false;
+    if (m_focusReporting && m_pty) {
+        writeToPty(QByteArray("\x1b[O", 3));
+    }
     viewport()->update();
     QAbstractScrollArea::focusOutEvent(event);
+}
+
+void TerminalWidget::wheelEvent(QWheelEvent *event)
+{
+    if (m_vt && isMouseReportingActive(event->modifiers())) {
+        const QPoint cell = pixelToCell(event->position().toPoint());
+        VTermModifier vmod = qtModsToVterm(event->modifiers());
+        const int delta = event->angleDelta().y();
+        const int button = (delta > 0) ? 4 : 5;
+        vterm_mouse_move(m_vt, cell.y(), cell.x(), vmod);
+        vterm_mouse_button(m_vt, button, true, vmod);
+        vterm_mouse_button(m_vt, button, false, vmod);
+        event->accept();
+        return;
+    }
+    QAbstractScrollArea::wheelEvent(event);
+}
+
+void TerminalWidget::mouseDoubleClickEvent(QMouseEvent *event)
+{
+    if (event->button() == Qt::LeftButton && !isMouseReportingActive(event->modifiers())) {
+        setFocus(Qt::MouseFocusReason);
+        selectWord(pixelToAbsoluteCell(event->pos()));
+        event->accept();
+        return;
+    }
+    QAbstractScrollArea::mouseDoubleClickEvent(event);
 }
 
 void TerminalWidget::inputMethodEvent(QInputMethodEvent *event)
@@ -812,6 +1019,55 @@ void TerminalWidget::copySelection()
 void TerminalWidget::pasteClipboard()
 {
     const QString text = QApplication::clipboard()->text();
-    if (text.isEmpty()) return;
-    writeToPty(text.toUtf8());
+    if (text.isEmpty() || !m_vt) return;
+    vterm_keyboard_start_paste(m_vt);
+    for (uint cp : text.toUcs4()) {
+        vterm_keyboard_unichar(m_vt, static_cast<uint32_t>(cp), VTERM_MOD_NONE);
+    }
+    vterm_keyboard_end_paste(m_vt);
+}
+
+void TerminalWidget::selectWord(const QPoint &absCell)
+{
+    if (!m_screen) return;
+    WidgetCellSource src(m_scrollback, m_screen, m_rows, m_cols);
+    const int row = absCell.y();
+    const int cols = src.cols();
+    if (row < 0 || row >= src.rowCount()) return;
+
+    static const auto isWordChar = [](uint32_t ch) {
+        if (ch == 0 || ch == ' ' || ch == '\t') return false;
+        static constexpr char32_t delims[] = U"!@#$%^&*(){}[]|;:'\",.<>?/`~-=+\\";
+        for (char32_t d : delims) {
+            if (ch == d) return false;
+        }
+        return true;
+    };
+
+    int startCol = absCell.x();
+    int endCol = absCell.x();
+
+    while (startCol > 0) {
+        VTermScreenCell cell = src.cellAt(row, startCol - 1);
+        if (!isWordChar(cell.chars[0])) break;
+        --startCol;
+    }
+    while (endCol < cols - 1) {
+        VTermScreenCell cell = src.cellAt(row, endCol + 1);
+        if (!isWordChar(cell.chars[0])) break;
+        ++endCol;
+    }
+
+    m_selStart = QPoint(startCol, row);
+    m_selEnd = QPoint(endCol, row);
+    m_hasSelection = (startCol != endCol || src.cellAt(row, startCol).chars[0] != 0);
+    m_selecting = false;
+    viewport()->update();
+
+    if (m_hasSelection) {
+        QClipboard *cb = QApplication::clipboard();
+        if (cb->supportsSelection()) {
+            cb->setText(selectionText(), QClipboard::Selection);
+        }
+    }
 }

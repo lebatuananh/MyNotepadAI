@@ -117,6 +117,7 @@ bool UnixPtyProcess::startProcess(const QString &shellPath, const QString &worki
 void UnixPtyProcess::onMasterReadable()
 {
     char buffer[4096];
+    bool eof = false;
     for (;;) {
         ssize_t n = ::read(m_masterFd, buffer, sizeof(buffer));
         if (n > 0) {
@@ -125,11 +126,24 @@ void UnixPtyProcess::onMasterReadable()
             if (errno == EINTR) continue;
             break;
         } else {
+            eof = true;
             break;
         }
     }
     if (!m_readBuffer.isEmpty()) {
         m_notifier.emitReadyRead();
+    }
+    if (eof) {
+        m_readNotifier->setEnabled(false);
+        int status = 0;
+        int exitCode = -1;
+        if (m_childPid > 0) {
+            pid_t r = waitpid(m_childPid, &status, WNOHANG);
+            if (r == m_childPid) {
+                exitCode = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+            }
+        }
+        emit finished(exitCode);
     }
 }
 

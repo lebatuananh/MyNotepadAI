@@ -179,15 +179,22 @@ bool ConPtyProcess::startProcess(const QString &shellPath, const QString &workin
         return false;
     }
     m_pid = piClient.dwProcessId;
+    m_processHandle = piClient.hProcess;
 
     HANDLE hPipeIn = m_hPipeIn;
     PtyBuffer *bufferPtr = &m_buffer;
     QMutex *mutexPtr = &m_bufferMutex;
-    STARTUPINFOEXW localStartup = startupInfo;
-    PROCESS_INFORMATION localPi = piClient;
+    HANDLE procHandle = piClient.hProcess;
+    IPtyProcess *self = this;
 
-    m_readThread = QThread::create([hPipeIn, bufferPtr, mutexPtr, localPi, localStartup]() mutable {
-        const DWORD BUFF_SIZE = 1024;
+    CloseHandle(piClient.hThread);
+    if (startupInfo.lpAttributeList) {
+        DeleteProcThreadAttributeList(startupInfo.lpAttributeList);
+        free(startupInfo.lpAttributeList);
+    }
+
+    m_readThread = QThread::create([hPipeIn, bufferPtr, mutexPtr, procHandle, self]() {
+        const DWORD BUFF_SIZE = 4096;
         char szBuffer[BUFF_SIZE];
         DWORD dwBytesRead = 0;
 
@@ -197,23 +204,17 @@ bool ConPtyProcess::startProcess(const QString &shellPath, const QString &workin
                 QMutexLocker locker(mutexPtr);
                 bufferPtr->m_readBuffer.append(szBuffer, dwBytesRead);
                 bufferPtr->emitReadyRead();
+                continue;
             }
-
-            if (QThread::currentThread()->isInterruptionRequested()) {
-                break;
-            }
-            if (!fRead || dwBytesRead == 0) {
-                if (QThread::currentThread()->isInterruptionRequested()) break;
-                QThread::msleep(10);
-            }
+            break;
         }
 
-        CloseHandle(localPi.hThread);
-        CloseHandle(localPi.hProcess);
-        if (localStartup.lpAttributeList) {
-            DeleteProcThreadAttributeList(localStartup.lpAttributeList);
-            free(localStartup.lpAttributeList);
-        }
+        DWORD exitCode = 0;
+        WaitForSingleObject(procHandle, 3000);
+        GetExitCodeProcess(procHandle, &exitCode);
+        QMetaObject::invokeMethod(self, [self, exitCode]() {
+            emit self->finished(static_cast<int>(exitCode));
+        }, Qt::QueuedConnection);
     });
 
     m_readThread->start();
@@ -240,14 +241,16 @@ bool ConPtyProcess::kill()
         return false;
     }
 
+    if (m_processHandle != INVALID_HANDLE_VALUE) {
+        TerminateProcess(m_processHandle, 1);
+    }
+
     if (m_winContext.closePseudoConsole) {
         m_winContext.closePseudoConsole(m_ptyHandler);
     }
 
     if (m_readThread) {
-        m_readThread->requestInterruption();
-        m_readThread->quit();
-        if (!m_readThread->wait(500)) {
+        if (!m_readThread->wait(2000)) {
             m_readThread->terminate();
             m_readThread->wait(100);
         }
@@ -255,6 +258,10 @@ bool ConPtyProcess::kill()
         m_readThread = nullptr;
     }
 
+    if (m_processHandle != INVALID_HANDLE_VALUE) {
+        CloseHandle(m_processHandle);
+        m_processHandle = INVALID_HANDLE_VALUE;
+    }
     if (m_hPipeOut != INVALID_HANDLE_VALUE) CloseHandle(m_hPipeOut);
     if (m_hPipeIn  != INVALID_HANDLE_VALUE) CloseHandle(m_hPipeIn);
     m_pid = 0;

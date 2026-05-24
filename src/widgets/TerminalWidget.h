@@ -30,6 +30,7 @@
 #include <QPoint>
 #include <QRegion>
 #include <QString>
+#include <QTimer>
 #include <QVector>
 
 class QPainter;
@@ -52,6 +53,7 @@ public:
     void killProcess();
 
     QString title() const { return m_title; }
+    bool hasExited() const { return m_exited; }
 
 signals:
     void titleChanged(const QString &title);
@@ -66,6 +68,8 @@ protected:
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
+    void mouseDoubleClickEvent(QMouseEvent *event) override;
+    void wheelEvent(QWheelEvent *event) override;
     void focusInEvent(QFocusEvent *event) override;
     void focusOutEvent(QFocusEvent *event) override;
     void inputMethodEvent(QInputMethodEvent *event) override;
@@ -73,6 +77,8 @@ protected:
 
 private slots:
     void onPtyReadyRead();
+    void onPtyFinished(int exitCode);
+    void processPendingInput();
 
 private:
     void writeToPty(const QByteArray &data);
@@ -85,6 +91,9 @@ private:
     QString selectionText() const;
     void copySelection();
     void pasteClipboard();
+    bool isMouseReportingActive(Qt::KeyboardModifiers mods) const;
+    VTermModifier qtModsToVterm(Qt::KeyboardModifiers mods) const;
+    void selectWord(const QPoint &cellPos);
 
     void paintCell(QPainter &p, int viewportRow, int col, const VTermScreenCell &cell);
     void updateScrollbarRange();
@@ -125,6 +134,14 @@ private:
 
     ScrollbackBuffer m_scrollback{5000};
     int m_scrollOffset = 0;
+
+    int m_mouseMode = 0;
+    bool m_focusReporting = false;
+    bool m_exited = false;
+    int m_exitCode = 0;
+
+    QByteArray m_pendingInput;
+    QTimer *m_batchTimer = nullptr;
 
     QRegion m_pendingDamage;
     QVector<VTermScreenCell> m_rowScratch;

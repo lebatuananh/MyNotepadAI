@@ -98,6 +98,7 @@ private:
     HPCON  m_ptyHandler;
     HANDLE m_hPipeIn;
     HANDLE m_hPipeOut;
+    HANDLE m_processHandle = INVALID_HANDLE_VALUE;
 
     QThread *m_readThread;
     QMutex m_bufferMutex;

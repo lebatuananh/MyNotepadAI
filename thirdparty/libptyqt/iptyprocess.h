@@ -47,6 +47,9 @@ public:
     QPair<qint16, qint16> size() const { return m_size; }
     QString lastError() const { return m_lastError; }
 
+signals:
+    void finished(int exitCode);
+
 protected:
     QString m_shellPath;
     QString m_lastError;

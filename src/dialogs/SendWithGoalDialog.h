@@ -41,9 +41,11 @@ public:
 private slots:
     void onAddCriterion();
     void onRemoveCriterion();
-    void onLoadPreset();
     void onSavePreset();
-    void onDeletePreset();
+    void onTemplateNew();
+    void onTemplateRename();
+    void onTemplateEdit();
+    void onTemplateDelete();
     void onStart();
 
 private:
@@ -52,6 +54,7 @@ private:
     void populateTemplates();
     void populatePresets();
     void updateRowCount();
+    void updateTemplateButtons();
     bool validate();
     QPlainTextEdit *createCriterionEdit(const QString &text = QString());
 
@@ -66,6 +69,9 @@ private:
     QLabel *m_rowCountLabel = nullptr;
     QComboBox *m_agentCombo = nullptr;
     QComboBox *m_templateCombo = nullptr;
+    QPushButton *m_tplRenameBtn = nullptr;
+    QPushButton *m_tplEditBtn = nullptr;
+    QPushButton *m_tplDeleteBtn = nullptr;
     QSpinBox *m_maxIterSpin = nullptr;
     QPushButton *m_loadPresetBtn = nullptr;
     QPushButton *m_savePresetBtn = nullptr;

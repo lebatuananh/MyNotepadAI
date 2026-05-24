@@ -17,6 +17,7 @@
  */
 
 #include <QApplication>
+#include <QTimer>
 
 #include "ApplicationSettings.h"
 
@@ -203,11 +204,15 @@ ScintillaNext *EditorManager::getEditorByFilePath(const QString &filePath)
 {
     QFileInfo newInfo(filePath);
     newInfo.makeAbsolute();
+    const QString canonicalNew = newInfo.absoluteFilePath();
 
     purgeOldEditorPointers();
 
     for (ScintillaNext *editor : qAsConst(editors)) {
-        if (editor->isFile() && editor->getFileInfo() == newInfo) {
+        if (!editor->isFile()) continue;
+        // Fast path: case-insensitive string compare avoids the expensive
+        // GetFileInformationByHandle syscall that QFileInfo::operator== uses.
+        if (editor->getFileInfo().absoluteFilePath().compare(canonicalNew, Qt::CaseInsensitive) == 0) {
             return editor;
         }
     }
@@ -352,19 +357,22 @@ void EditorManager::setupEditor(ScintillaNext *editor)
 
     GitGutterDecorator *gg = new GitGutterDecorator(editor);
     gg->setEnabled(settings->gitGutterEnabled());
-    // Refresh once the editor has a real file path (createEditorFromFile
-    // sets it before this hook fires; createEditor without a path defers
-    // until the user saves and the SavePointReached path takes over).
-    if (settings->gitGutterEnabled() && editor->isFile()) {
-        gg->refresh();
-    }
 
     InlineBlameDecorator *blame = new InlineBlameDecorator(editor);
     blame->setEnabled(settings->inlineBlameEnabled());
     connect(blame, &InlineBlameDecorator::commitClicked,
             this, &EditorManager::blameCommitClicked);
-    if (settings->inlineBlameEnabled() && editor->isFile()) {
-        blame->refresh();
+
+    // Defer git decorator refreshes to the next event-loop tick so the
+    // editor tab appears instantly. The refresh spawns QProcess (git
+    // rev-parse) which costs ~50-100ms on Windows per CreateProcess call;
+    // deferring keeps that off the file-open critical path.
+    if (editor->isFile()) {
+        QTimer::singleShot(0, editor, [gg, blame, gitGutterEnabled = settings->gitGutterEnabled(),
+                                        inlineBlameEnabled = settings->inlineBlameEnabled()]() {
+            if (gitGutterEnabled) gg->refresh();
+            if (inlineBlameEnabled) blame->refresh();
+        });
     }
 
     if (settings->minimapEnabled()) {

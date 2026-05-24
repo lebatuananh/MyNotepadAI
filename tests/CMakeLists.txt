@@ -240,6 +240,7 @@ add_test(NAME AcpSessionModelPersistenceIntegration COMMAND test_acp_session_mod
 qt_add_executable(test_acp_agent_manager test_acp_agent_manager.cpp)
 target_include_directories(test_acp_agent_manager PRIVATE
     ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/dialogs
     ${CMAKE_SOURCE_DIR}/src/docks
     ${CMAKE_SOURCE_DIR}/src/widgets
 )
@@ -280,6 +281,16 @@ target_sources(test_acp_agent_manager PRIVATE
     ${CMAKE_SOURCE_DIR}/src/widgets/AcpToolCallCard.h
     ${CMAKE_SOURCE_DIR}/src/widgets/AcpUsageIndicator.cpp
     ${CMAKE_SOURCE_DIR}/src/widgets/AcpUsageIndicator.h
+    ${CMAKE_SOURCE_DIR}/src/GoalAgent.cpp
+    ${CMAKE_SOURCE_DIR}/src/GoalAgent.h
+    ${CMAKE_SOURCE_DIR}/src/GoalAgentSettings.cpp
+    ${CMAKE_SOURCE_DIR}/src/GoalAgentSettings.h
+    ${CMAKE_SOURCE_DIR}/src/GoalActionParser.cpp
+    ${CMAKE_SOURCE_DIR}/src/GoalActionParser.h
+    ${CMAKE_SOURCE_DIR}/src/GoalPromptRenderer.cpp
+    ${CMAKE_SOURCE_DIR}/src/GoalPromptRenderer.h
+    ${CMAKE_SOURCE_DIR}/src/dialogs/SendWithGoalDialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/dialogs/SendWithGoalDialog.h
 )
 add_test(NAME AcpAgentManager COMMAND test_acp_agent_manager)
 
@@ -287,6 +298,7 @@ add_test(NAME AcpAgentManager COMMAND test_acp_agent_manager)
 qt_add_executable(test_acp_agent_exit_restart test_acp_agent_exit_restart.cpp)
 target_include_directories(test_acp_agent_exit_restart PRIVATE
     ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/dialogs
     ${CMAKE_SOURCE_DIR}/src/docks
     ${CMAKE_SOURCE_DIR}/src/widgets
 )
@@ -327,6 +339,16 @@ target_sources(test_acp_agent_exit_restart PRIVATE
     ${CMAKE_SOURCE_DIR}/src/widgets/AcpToolCallCard.h
     ${CMAKE_SOURCE_DIR}/src/widgets/AcpUsageIndicator.cpp
     ${CMAKE_SOURCE_DIR}/src/widgets/AcpUsageIndicator.h
+    ${CMAKE_SOURCE_DIR}/src/GoalAgent.cpp
+    ${CMAKE_SOURCE_DIR}/src/GoalAgent.h
+    ${CMAKE_SOURCE_DIR}/src/GoalAgentSettings.cpp
+    ${CMAKE_SOURCE_DIR}/src/GoalAgentSettings.h
+    ${CMAKE_SOURCE_DIR}/src/GoalActionParser.cpp
+    ${CMAKE_SOURCE_DIR}/src/GoalActionParser.h
+    ${CMAKE_SOURCE_DIR}/src/GoalPromptRenderer.cpp
+    ${CMAKE_SOURCE_DIR}/src/GoalPromptRenderer.h
+    ${CMAKE_SOURCE_DIR}/src/dialogs/SendWithGoalDialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/dialogs/SendWithGoalDialog.h
 )
 add_test(NAME AcpAgentExitRestart COMMAND test_acp_agent_exit_restart)
 
@@ -334,6 +356,7 @@ add_test(NAME AcpAgentExitRestart COMMAND test_acp_agent_exit_restart)
 qt_add_executable(test_acp_dock_close_event test_acp_dock_close_event.cpp)
 target_include_directories(test_acp_dock_close_event PRIVATE
     ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/dialogs
     ${CMAKE_SOURCE_DIR}/src/docks
     ${CMAKE_SOURCE_DIR}/src/widgets
 )
@@ -370,6 +393,16 @@ target_sources(test_acp_dock_close_event PRIVATE
     ${CMAKE_SOURCE_DIR}/src/widgets/AcpToolCallCard.h
     ${CMAKE_SOURCE_DIR}/src/widgets/AcpUsageIndicator.cpp
     ${CMAKE_SOURCE_DIR}/src/widgets/AcpUsageIndicator.h
+    ${CMAKE_SOURCE_DIR}/src/GoalAgent.cpp
+    ${CMAKE_SOURCE_DIR}/src/GoalAgent.h
+    ${CMAKE_SOURCE_DIR}/src/GoalAgentSettings.cpp
+    ${CMAKE_SOURCE_DIR}/src/GoalAgentSettings.h
+    ${CMAKE_SOURCE_DIR}/src/GoalActionParser.cpp
+    ${CMAKE_SOURCE_DIR}/src/GoalActionParser.h
+    ${CMAKE_SOURCE_DIR}/src/GoalPromptRenderer.cpp
+    ${CMAKE_SOURCE_DIR}/src/GoalPromptRenderer.h
+    ${CMAKE_SOURCE_DIR}/src/dialogs/SendWithGoalDialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/dialogs/SendWithGoalDialog.h
 )
 add_test(NAME AcpDockCloseEvent COMMAND test_acp_dock_close_event)
 

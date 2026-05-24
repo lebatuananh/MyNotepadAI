@@ -1731,40 +1731,200 @@ void MainWindow::registerWorkspaceDock(FolderAsWorkspaceDock *dock)
 
     connect(dock, &FolderAsWorkspaceDock::treeContextMenuRequested, this,
             [this](QMenu *menu, const QString &absPath, bool isDir) {
-        const auto docks = findChildren<AiAgentDock *>();
-        if (docks.isEmpty()) return;
+        const QString wsRoot = currentWorkspaceRoot();
 
-        AiAgentDock *targetDock = nullptr;
-        for (auto *d : docks) {
-            if (d->isVisible()) {
-                targetDock = d;
-                break;
-            }
-        }
-        if (!targetDock) {
-            targetDock = docks.first();
-        }
-
-        auto *sendToAi = new QAction(tr("Send to AI"), menu);
-        connect(sendToAi, &QAction::triggered, this, [this, absPath, isDir, targetDock]() {
-            QString relPath = absPath;
-            const QString wsRoot = currentWorkspaceRoot();
-            if (!wsRoot.isEmpty() && relPath.startsWith(wsRoot)) {
-                relPath = relPath.mid(wsRoot.length());
-                if (relPath.startsWith(QLatin1Char('/')) || relPath.startsWith(QLatin1Char('\\')))
-                    relPath = relPath.mid(1);
-            }
-            QString text;
-            if (isDir && !relPath.endsWith(QLatin1Char('/'))) {
-                text = QStringLiteral("@%1/ ").arg(relPath);
-            } else {
-                text = QStringLiteral("@%1 ").arg(relPath);
-            }
-            targetDock->insertTextToInput(text);
-            targetDock->setVisible(true);
-            targetDock->raise();
+        // --- Copy Path / Copy Relative Path ---
+        auto *copyPath = new QAction(tr("Copy Path"), menu);
+        connect(copyPath, &QAction::triggered, this, [absPath]() {
+            QApplication::clipboard()->setText(QDir::toNativeSeparators(absPath));
         });
-        menu->addAction(sendToAi);
+        menu->addAction(copyPath);
+
+        auto *copyRelPath = new QAction(tr("Copy Relative Path"), menu);
+        connect(copyRelPath, &QAction::triggered, this, [absPath, wsRoot]() {
+            QString rel = absPath;
+            if (!wsRoot.isEmpty() && rel.startsWith(wsRoot)) {
+                rel = rel.mid(wsRoot.length());
+                if (rel.startsWith(QLatin1Char('/')) || rel.startsWith(QLatin1Char('\\')))
+                    rel = rel.mid(1);
+            }
+            QApplication::clipboard()->setText(QDir::toNativeSeparators(rel));
+        });
+        menu->addAction(copyRelPath);
+
+        menu->addSeparator();
+
+        // --- New File / New Folder (directory only) ---
+        if (isDir) {
+            auto *newFile = new QAction(tr("New File..."), menu);
+            connect(newFile, &QAction::triggered, this, [this, absPath]() {
+                bool ok = false;
+                const QString name = QInputDialog::getText(this, tr("New File"),
+                    tr("File name:"), QLineEdit::Normal, QString(), &ok);
+                if (!ok || name.isEmpty()) return;
+                if (name.contains(QLatin1Char('/')) || name.contains(QLatin1Char('\\'))
+                    || name.contains(QStringLiteral(".."))) {
+                    QMessageBox::warning(this, tr("New File"),
+                        tr("Invalid file name."));
+                    return;
+                }
+                const QString filePath = QDir(absPath).filePath(name);
+                QFile f(filePath);
+                if (f.exists()) {
+                    QMessageBox::warning(this, tr("New File"),
+                        tr("A file named \"%1\" already exists.").arg(name));
+                    return;
+                }
+                if (!f.open(QIODevice::WriteOnly)) {
+                    QMessageBox::warning(this, tr("New File"),
+                        tr("Could not create file \"%1\".").arg(name));
+                    return;
+                }
+                f.close();
+            });
+            menu->addAction(newFile);
+
+            auto *newFolder = new QAction(tr("New Folder..."), menu);
+            connect(newFolder, &QAction::triggered, this, [this, absPath]() {
+                bool ok = false;
+                const QString name = QInputDialog::getText(this, tr("New Folder"),
+                    tr("Folder name:"), QLineEdit::Normal, QString(), &ok);
+                if (!ok || name.isEmpty()) return;
+                if (name.contains(QLatin1Char('/')) || name.contains(QLatin1Char('\\'))
+                    || name.contains(QStringLiteral(".."))) {
+                    QMessageBox::warning(this, tr("New Folder"),
+                        tr("Invalid folder name."));
+                    return;
+                }
+                QDir dir(absPath);
+                if (dir.exists(name)) {
+                    QMessageBox::warning(this, tr("New Folder"),
+                        tr("A folder named \"%1\" already exists.").arg(name));
+                    return;
+                }
+                if (!dir.mkdir(name)) {
+                    QMessageBox::warning(this, tr("New Folder"),
+                        tr("Could not create folder \"%1\".").arg(name));
+                }
+            });
+            menu->addAction(newFolder);
+
+            menu->addSeparator();
+        }
+
+        // --- Show in Explorer ---
+        auto *showInExplorer = new QAction(tr("Show in Explorer"), menu);
+        connect(showInExplorer, &QAction::triggered, this, [absPath, isDir]() {
+#ifdef Q_OS_WIN
+            if (isDir) {
+                QProcess::startDetached(QStringLiteral("explorer"), {QDir::toNativeSeparators(absPath)});
+            } else {
+                QProcess::startDetached(QStringLiteral("explorer"),
+                    {QStringLiteral("/select,"), QDir::toNativeSeparators(absPath)});
+            }
+#elif defined(Q_OS_MACOS)
+            if (isDir) {
+                QProcess::startDetached(QStringLiteral("open"), {absPath});
+            } else {
+                QProcess::startDetached(QStringLiteral("open"), {QStringLiteral("-R"), absPath});
+            }
+#else
+            const QString target = isDir ? absPath : QFileInfo(absPath).absolutePath();
+            QProcess::startDetached(QStringLiteral("xdg-open"), {target});
+#endif
+        });
+        menu->addAction(showInExplorer);
+
+        // --- Open Terminal Here (directory only) ---
+        if (isDir) {
+            auto *openTerminal = new QAction(tr("Open Terminal Here"), menu);
+            connect(openTerminal, &QAction::triggered, this, [this, absPath]() {
+                terminalManager->openTerminal(absPath);
+            });
+            menu->addAction(openTerminal);
+        }
+
+        menu->addSeparator();
+
+        // --- Delete (submenu: Move to Trash / Delete Permanently) ---
+        auto *deleteMenu = new QMenu(tr("Delete"), menu);
+        auto *moveToTrash = new QAction(tr("Move to Trash"), deleteMenu);
+        connect(moveToTrash, &QAction::triggered, this, [this, absPath, isDir]() {
+            const QString name = QFileInfo(absPath).fileName();
+            const QString msg = isDir
+                ? tr("Are you sure you want to move folder \"%1\" to the trash?").arg(name)
+                : tr("Are you sure you want to move \"%1\" to the trash?").arg(name);
+            if (QMessageBox::question(this, tr("Move to Trash"), msg) != QMessageBox::Yes)
+                return;
+            if (!QFile::moveToTrash(absPath)) {
+                QMessageBox::warning(this, tr("Move to Trash"),
+                    tr("Could not move \"%1\" to the trash.").arg(name));
+            }
+        });
+        deleteMenu->addAction(moveToTrash);
+
+        auto *deletePermanently = new QAction(tr("Delete Permanently"), deleteMenu);
+        connect(deletePermanently, &QAction::triggered, this, [this, absPath, isDir]() {
+            const QString name = QFileInfo(absPath).fileName();
+            const QString msg = isDir
+                ? tr("Are you sure you want to permanently delete folder \"%1\" and all its contents? This cannot be undone.")
+                    .arg(name)
+                : tr("Are you sure you want to permanently delete \"%1\"? This cannot be undone.")
+                    .arg(name);
+            if (QMessageBox::warning(this, tr("Delete Permanently"), msg,
+                    QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes)
+                return;
+            bool ok;
+            if (isDir) {
+                QDir dir(absPath);
+                ok = dir.removeRecursively();
+            } else {
+                ok = QFile::remove(absPath);
+            }
+            if (!ok) {
+                QMessageBox::warning(this, tr("Delete Permanently"),
+                    tr("Could not delete \"%1\".").arg(name));
+            }
+        });
+        deleteMenu->addAction(deletePermanently);
+        menu->addMenu(deleteMenu);
+
+        menu->addSeparator();
+
+        // --- Send to AI ---
+        const auto docks = findChildren<AiAgentDock *>();
+        if (!docks.isEmpty()) {
+            AiAgentDock *targetDock = nullptr;
+            for (auto *d : docks) {
+                if (d->isVisible()) {
+                    targetDock = d;
+                    break;
+                }
+            }
+            if (!targetDock) {
+                targetDock = docks.first();
+            }
+
+            auto *sendToAi = new QAction(tr("Send to AI"), menu);
+            connect(sendToAi, &QAction::triggered, this, [this, absPath, isDir, targetDock, wsRoot]() {
+                QString relPath = absPath;
+                if (!wsRoot.isEmpty() && relPath.startsWith(wsRoot)) {
+                    relPath = relPath.mid(wsRoot.length());
+                    if (relPath.startsWith(QLatin1Char('/')) || relPath.startsWith(QLatin1Char('\\')))
+                        relPath = relPath.mid(1);
+                }
+                QString text;
+                if (isDir && !relPath.endsWith(QLatin1Char('/'))) {
+                    text = QStringLiteral("@%1/ ").arg(relPath);
+                } else {
+                    text = QStringLiteral("@%1 ").arg(relPath);
+                }
+                targetDock->insertTextToInput(text);
+                targetDock->setVisible(true);
+                targetDock->raise();
+            });
+            menu->addAction(sendToAi);
+        }
     });
 }
 
@@ -2784,7 +2944,12 @@ void MainWindow::addEditor(ScintillaNext *editor)
         detectLanguage(editor);
     }
 
-    fileWatcher->watchEditor(editor);
+    // Defer file-watcher registration to the next event-loop tick.
+    // canonicalFilePath() + QFileSystemWatcher::addPath are syscalls that
+    // don't need to complete before the tab is painted.
+    QTimer::singleShot(0, editor, [this, editor]() {
+        fileWatcher->watchEditor(editor);
+    });
     connect(editor, &ScintillaNext::closed, this, [this, editor]() {
         fileWatcher->unwatchEditor(editor);
     });

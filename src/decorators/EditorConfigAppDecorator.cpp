@@ -23,6 +23,8 @@
 
 #include "EditorConfig.h"
 
+#include <QTimer>
+
 class PreventUnfolding
 {
 public:
@@ -46,7 +48,13 @@ EditorConfigAppDecorator::EditorConfigAppDecorator(NotepadNextApplication *app)
 {
     EditorManager *manager = app->getEditorManager();
 
-    connect(manager, &EditorManager::editorCreated, this, &EditorConfigAppDecorator::doEditorConfig);
+    connect(manager, &EditorManager::editorCreated, this, [this](ScintillaNext *editor) {
+        // Defer to the next event-loop tick so .editorconfig directory
+        // traversal + regex compilation don't block the file-open path.
+        QTimer::singleShot(0, editor, [this, editor]() {
+            doEditorConfig(editor);
+        });
+    });
     // TODO: on editor reload
 }
 

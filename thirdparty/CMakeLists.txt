@@ -48,5 +48,6 @@ add_subdirectory(lexilla)
 add_subdirectory(uchardet)
 add_subdirectory(libvterm)
 add_subdirectory(libptyqt)
+add_subdirectory(xdiff)
 
 target_link_libraries(lexilla PRIVATE scintilla)

@@ -453,6 +453,78 @@ target_sources(test_git_diff_parser PRIVATE
 )
 add_test(NAME GitDiffParser COMMAND test_git_diff_parser)
 
+# --- GitGutterMarkers: pure diff → editor-marker line mapping.
+#     Verifies that hunk classification (Added vs Modified vs Deleted) and
+#     line indexing land where the gutter painter expects them. ---
+qt_add_executable(test_git_gutter_markers test_git_gutter_markers.cpp)
+target_include_directories(test_git_gutter_markers PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/git
+    ${CMAKE_SOURCE_DIR}/src/decorators
+    ${CMAKE_SOURCE_DIR}/thirdparty/xdiff
+)
+target_link_libraries(test_git_gutter_markers PRIVATE Qt6::Core Qt6::Test xdiff)
+target_sources(test_git_gutter_markers PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/git/BufferDiffEngine.cpp
+    ${CMAKE_SOURCE_DIR}/src/git/BufferDiffEngine.h
+    ${CMAKE_SOURCE_DIR}/src/decorators/GitGutterMarkers.cpp
+    ${CMAKE_SOURCE_DIR}/src/decorators/GitGutterMarkers.h
+)
+add_test(NAME GitGutterMarkers COMMAND test_git_gutter_markers)
+
+# --- BufferDiffEngine: xdl_diff wrapper for in-process buffer-vs-HEAD diff.
+#     The 5k-line bench hard-fails > 60 ms so a regression in the hot path
+#     (every keystroke can trigger a re-diff) is caught at CI time. ---
+qt_add_executable(test_buffer_diff_engine test_buffer_diff_engine.cpp)
+target_include_directories(test_buffer_diff_engine PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/git
+    ${CMAKE_SOURCE_DIR}/thirdparty/xdiff
+)
+target_link_libraries(test_buffer_diff_engine PRIVATE Qt6::Core Qt6::Test xdiff)
+target_sources(test_buffer_diff_engine PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/git/BufferDiffEngine.cpp
+    ${CMAKE_SOURCE_DIR}/src/git/BufferDiffEngine.h
+)
+add_test(NAME BufferDiffEngine COMMAND test_buffer_diff_engine)
+
+# --- GitBaseBlobCache: app-wide LRU 16MB cache, xxHash key, mutex-guarded.
+#     Verifies put/get round-trip, LRU eviction, MRU promotion on get,
+#     per-repo invalidation, and budget shrink eviction. ---
+qt_add_executable(test_git_base_blob_cache test_git_base_blob_cache.cpp)
+target_include_directories(test_git_base_blob_cache PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/git
+)
+target_link_libraries(test_git_base_blob_cache PRIVATE Qt6::Core Qt6::Test xxhash)
+target_sources(test_git_base_blob_cache PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/git/GitBaseBlobCache.cpp
+    ${CMAKE_SOURCE_DIR}/src/git/GitBaseBlobCache.h
+)
+add_test(NAME GitBaseBlobCache COMMAND test_git_base_blob_cache)
+
+# --- GitBlameParser: `git blame --porcelain` decoder.
+#     Per-line author/time/summary extraction with sha-deduped records.
+#     5k-line bench hard-fails > 60 ms (mirrors GitDiffParser budget). ---
+qt_add_executable(test_git_blame_parser test_git_blame_parser.cpp)
+target_include_directories(test_git_blame_parser PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/git
+)
+target_link_libraries(test_git_blame_parser PRIVATE Qt6::Core Qt6::Test)
+target_sources(test_git_blame_parser PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/git/GitBlameParser.cpp
+    ${CMAKE_SOURCE_DIR}/src/git/GitBlameParser.h
+)
+add_test(NAME GitBlameParser COMMAND test_git_blame_parser)
+
+# --- EditorMinimap math: pure y ↔ line mapping used on the paint hot path
+#     and every minimap mouse event. Header-only; the unit test verifies
+#     clamping, round-trip identity, huge-file overflow safety, and a
+#     hard-fail benchmark < 1 µs per call. ---
+qt_add_executable(test_editor_minimap test_editor_minimap.cpp)
+target_include_directories(test_editor_minimap PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/widgets
+)
+target_link_libraries(test_editor_minimap PRIVATE Qt6::Core Qt6::Test)
+add_test(NAME EditorMinimap COMMAND test_editor_minimap)
+
 # --- GitNumstatParser: porcelain `git diff --numstat -z` decoder
 #     (normal, renamed triplet, binary `-\t-\t`, UTF-8 paths, truncated input). ---
 qt_add_executable(test_git_numstat_parser test_git_numstat_parser.cpp)

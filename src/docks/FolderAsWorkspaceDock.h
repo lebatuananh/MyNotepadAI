@@ -133,6 +133,13 @@ private slots:
     void onTreeCollapsed(const QModelIndex &index);
     void onStatusUpdated();
     void onSubmoduleEntriesReady(const GitStatusEntries &entries);
+    // Relay from GitTabWidget. If a git-diff fetch is still in flight, the
+    // editor open is queued so it fires AFTER the diff tab activation —
+    // double-click should always end with the editor tab active, but the
+    // async git diff process can otherwise win the race and steal focus.
+    void onGitTabFileActivated(const QString &absPath);
+    void onGitDiffPreviewRendered(ScintillaNext *editor);
+    void onGitDiffPreviewFailed(const QString &relPath, const QString &message);
 
 private:
     Ui::FolderAsWorkspaceDock *ui;
@@ -175,6 +182,15 @@ private:
     // synchronously via direct-connect; the slots check this flag to skip
     // marking dirty / vetoing for our own programmatic toggles.
     bool m_programmaticToggle = false;
+
+    // True between showGitDiffPreview() and the matching gitDiffPreviewRendered/
+    // Failed signal — the git diff process is async, so a double-click that
+    // requests both a diff (click) and an editor (dblclick) would race and
+    // sometimes leave the diff tab active. While this is set, a pending editor
+    // open is queued in m_pendingEditorOpenPath and fired once the diff
+    // settles, so the editor tab is always the last one activated.
+    bool m_diffRenderPending = false;
+    QString m_pendingEditorOpenPath;
 
     void ensureGitTab();
     GitDiffViewController *ensureGitDiffViewController();

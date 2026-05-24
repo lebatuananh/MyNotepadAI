@@ -36,6 +36,9 @@
 #include "AutoCompletion.h"
 #include "URLFinder.h"
 #include "BookMarkDecorator.h"
+#include "GitGutterDecorator.h"
+#include "InlineBlameDecorator.h"
+#include "EditorMinimap.h"
 #include "HTMLAutoCompleteDecorator.h"
 #include "JustfileRecipeHighlighter.h"
 #include "ProfileScope.h"
@@ -138,6 +141,38 @@ EditorManager::EditorManager(ApplicationSettings *settings, QObject *parent)
             LineNumbers *decorator = editor->findChild<LineNumbers *>(QString(), Qt::FindDirectChildrenOnly);
             if (decorator) {
                 decorator->setEnabled(b);
+            }
+        }
+    });
+
+    connect(settings, &ApplicationSettings::gitGutterEnabledChanged, this, [=](bool b){
+        for (auto &editor : getEditors()) {
+            if (isDiffView(editor)) continue;
+            GitGutterDecorator *d = editor->findChild<GitGutterDecorator *>(QString(), Qt::FindDirectChildrenOnly);
+            if (!d) continue;
+            d->setEnabled(b);
+            if (b && editor->isFile()) d->refresh();
+        }
+    });
+
+    connect(settings, &ApplicationSettings::inlineBlameEnabledChanged, this, [=](bool b){
+        for (auto &editor : getEditors()) {
+            if (isDiffView(editor)) continue;
+            InlineBlameDecorator *d = editor->findChild<InlineBlameDecorator *>(QString(), Qt::FindDirectChildrenOnly);
+            if (!d) continue;
+            d->setEnabled(b);
+            if (b && editor->isFile()) d->refresh();
+        }
+    });
+
+    connect(settings, &ApplicationSettings::minimapEnabledChanged, this, [=](bool b){
+        for (auto &editor : getEditors()) {
+            if (isDiffView(editor)) continue;
+            EditorMinimap *m = editor->findChild<EditorMinimap *>(QString(), Qt::FindDirectChildrenOnly);
+            if (b) {
+                if (!m) new EditorMinimap(editor); // self-installs
+            } else if (m) {
+                m->deleteLater();
             }
         }
     });
@@ -314,6 +349,28 @@ void EditorManager::setupEditor(ScintillaNext *editor)
 
     BookMarkDecorator *bm = new BookMarkDecorator(editor);
     bm->setEnabled(true);
+
+    GitGutterDecorator *gg = new GitGutterDecorator(editor);
+    gg->setEnabled(settings->gitGutterEnabled());
+    // Refresh once the editor has a real file path (createEditorFromFile
+    // sets it before this hook fires; createEditor without a path defers
+    // until the user saves and the SavePointReached path takes over).
+    if (settings->gitGutterEnabled() && editor->isFile()) {
+        gg->refresh();
+    }
+
+    InlineBlameDecorator *blame = new InlineBlameDecorator(editor);
+    blame->setEnabled(settings->inlineBlameEnabled());
+    if (settings->inlineBlameEnabled() && editor->isFile()) {
+        blame->refresh();
+    }
+
+    if (settings->minimapEnabled()) {
+        // EditorMinimap parents itself to `editor` and self-positions via an
+        // event filter. Construction with parent==nullptr triggers the
+        // self-install path; toggle off via deleteLater().
+        new EditorMinimap(editor);
+    }
 
     new HTMLAutoCompleteDecorator(editor);
 }

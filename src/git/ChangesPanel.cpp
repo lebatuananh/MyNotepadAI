@@ -261,11 +261,5 @@ void ChangesPanel::onTreeDoubleClicked(const QModelIndex &index)
     if (index.data(GitStatusModel::IsSectionRole).toBool()) return;
     const QString rel = index.data(GitStatusModel::RelPathRole).toString();
     if (rel.isEmpty()) return;
-    // Caller (GitTabWidget) prepends repo root before forwarding to the host
-    // MainWindow — we only know the relative path here. We emit the relative
-    // path in fileActivated and let the host resolve; but the existing
-    // contract is absolute path. Instead, route both clicks through the host
-    // via diffRequested (single click) and a second signal for "open file":
-    // emit fileActivated with relPath only — host adapter converts.
     emit fileActivated(rel);
 }

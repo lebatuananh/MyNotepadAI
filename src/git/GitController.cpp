@@ -19,6 +19,7 @@
 #include "GitController.h"
 
 #include "BranchRefParser.h"
+#include "GitBaseBlobCache.h"
 #include "GitErrorClassifier.h"
 #include "GitNumstatParser.h"
 #include "GitProcessRunner.h"
@@ -66,6 +67,14 @@ GitController::GitController(const QString &workspaceRoot, QObject *parent)
             this, &GitController::remoteOpProgress);
     connect(m_watcher, &GitWatcher::headChanged,
             this, &GitController::scheduleDebouncedRefresh);
+    // HEAD now points to a different commit → every cached HEAD blob for
+    // this repo is potentially stale. Drop them so the next buffer-diff
+    // refresh re-fetches via cat-file. Index/refs/workingTree changes leave
+    // HEAD untouched, so they don't need to evict.
+    connect(m_watcher, &GitWatcher::headChanged, this, [this]() {
+        if (!m_currentRepo.isEmpty())
+            GitBaseBlobCache::instance().invalidateRepo(m_currentRepo);
+    });
     connect(m_watcher, &GitWatcher::indexChanged,
             this, &GitController::scheduleDebouncedRefresh);
     connect(m_watcher, &GitWatcher::refsChanged,
@@ -698,6 +707,27 @@ void GitController::requestFullDiff()
     enqueue(op);
 }
 
+void GitController::requestCatFileBlob(const QString &relPath)
+{
+    if (m_currentRepo.isEmpty() || relPath.isEmpty()) {
+        emit catFileBlobFailed(relPath, tr_("No repository selected."));
+        return;
+    }
+    Op op;
+    op.kind = OpKind::CatFileBlob;
+    // `cat-file blob HEAD:<path>` returns the raw bytes of the blob at HEAD,
+    // no decoding, no smudge filter — exactly what xdl_diff wants.
+    op.argv = { QStringLiteral("-c"), QStringLiteral("core.quotepath=false"),
+                QStringLiteral("-C"), m_currentRepo,
+                QStringLiteral("cat-file"), QStringLiteral("blob"),
+                QStringLiteral("HEAD:") + relPath };
+    op.timeoutMs = kTimeoutNormal;
+    QVariantMap meta;
+    meta[QStringLiteral("relPath")] = relPath;
+    op.meta = meta;
+    enqueue(op);
+}
+
 void GitController::onRunFinished(int exit, const QByteArray &out, const QByteArray &err)
 {
     const OpKind kind = m_current.kind;
@@ -773,6 +803,15 @@ void GitController::onRunFinished(int exit, const QByteArray &out, const QByteAr
             popAndAdvance();
             return;
         }
+        // cat-file blob failure (path absent at HEAD, ambiguous ref, etc.):
+        // surface to requester only — buffer-diff just degrades to no markers
+        // for that file, never blocks the queue.
+        if (kind == OpKind::CatFileBlob) {
+            emit catFileBlobFailed(m_current.meta.value(QStringLiteral("relPath")).toString(),
+                                   QString::fromUtf8(err));
+            popAndAdvance();
+            return;
+        }
         setState(State::Error);
         m_queue.clear();
         emit errorOccurred(e);
@@ -817,6 +856,10 @@ void GitController::onRunFinished(int exit, const QByteArray &out, const QByteAr
         case OpKind::DiffAllWorktree:
             if (!out.isEmpty()) emit fullDiffReady(out);
             else emit fullDiffFailed(tr_("No changes to commit."));
+            break;
+        case OpKind::CatFileBlob:
+            emit catFileBlobReady(m_current.meta.value(QStringLiteral("relPath")).toString(),
+                                  out);
             break;
         case OpKind::Stage:
         case OpKind::Unstage:

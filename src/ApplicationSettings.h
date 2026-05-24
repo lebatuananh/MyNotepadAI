@@ -139,6 +139,22 @@ public:
     // tree shows default text colour regardless of git status.
     DEFINE_SETTING(FileTreeGitColors, fileTreeGitColors, bool)
 
+    // Editor-margin git change markers (added/modified/deleted). When false,
+    // the gutter shows no decoration. Default true. Storage key
+    // Editor/GitGutterEnabled.
+    DEFINE_SETTING(GitGutterEnabled, gitGutterEnabled, bool)
+
+    // Inline git-blame annotation at the caret's line (EOL annotation
+    // "Author, when • summary"). Off by default — many users find it
+    // distracting; opt-in via INI to start. Storage key Editor/InlineBlameEnabled.
+    DEFINE_SETTING(InlineBlameEnabled, inlineBlameEnabled, bool)
+
+    // Editor minimap (VS Code / Sublime-style thumbnail strip on the right).
+    // Shows code-density tint + git markers + viewport indicator; click/drag
+    // to navigate. Off by default — opt-in via INI. Storage key
+    // Editor/MinimapEnabled.
+    DEFINE_SETTING(MinimapEnabled, minimapEnabled, bool)
+
 #ifndef NDEBUG
     DEFINE_SETTING(ShutdownDiagnosticsEnabled, shutdownDiagnosticsEnabled, bool)
 #endif

@@ -17,8 +17,12 @@
  */
 
 
+#include <QApplication>
 #include <QPainter>
 
+#include "../git/GitDiffPalette.h"
+#include "../NotepadNextApplication.h"
+#include "GitGutterMarkers.h"
 #include "HighlightedScrollBar.h"
 
 
@@ -64,24 +68,23 @@ void HighlightedScrollBar::paintEvent(QPaintEvent *event)
     QScrollBar::paintEvent(event);
     QPainter p(this);
 
-    drawMarker(p, 24);
+    // Bookmarks: marker 24, palette Link blue.
+    drawMarker(p, 24, palette().color(QPalette::Link));
     drawIndicator(p, smartHighlighterIndicator);
+    drawGitMarkers(p);
     drawCursors(p);
 }
 
-void HighlightedScrollBar::drawMarker(QPainter &p, int marker)
+void HighlightedScrollBar::drawMarker(QPainter &p, int marker, const QColor &color)
 {
-    // NOTE: SCI_MARKERGETBACK doesn't exist...so can't use the marker color
+    // NOTE: SCI_MARKERGETBACK doesn't exist, so the caller passes the tick
+    // colour explicitly. For bookmark marker 24 the caller picks the
+    // palette's Link role; for git markers it picks the GitDiffPalette
+    // foreground for that change kind so the scrollbar tick visually
+    // matches the gutter bar on that line.
     int curLine = 0;
-
-    // Use the palette's Link role (always blue-ish) for bookmark ticks. This
-    // keeps the semantic "bookmark blue" while ensuring contrast against
-    // whatever the current scrollbar groove looks like.
-    const QColor tickColor = palette().color(QPalette::Link);
-
     while ((curLine = editor->markerNext(curLine, 1 << marker)) != -1) {
-        drawTickMark(p, lineToScrollBarY(curLine), DEFAULT_TICK_HEIGHT, tickColor);
-
+        drawTickMark(p, lineToScrollBarY(curLine), DEFAULT_TICK_HEIGHT, color);
         curLine++;
     }
 }
@@ -116,6 +119,23 @@ void HighlightedScrollBar::drawCursors(QPainter &p)
 
         drawTickMark(p, startCaretY, DEFAULT_TICK_HEIGHT, caretColor);
     }
+}
+
+void HighlightedScrollBar::drawGitMarkers(QPainter &p)
+{
+    // Mirror the gutter palette into the scrollbar overview so a glance at
+    // the bar shows where in the file every change lives. Theme follows
+    // NotepadNextApplication; standalone Qt apps (tests, fallback) get
+    // light-mode colours.
+    bool isDark = false;
+    if (auto *app = qobject_cast<NotepadNextApplication *>(qApp)) {
+        isDark = app->isEffectiveThemeDark();
+    }
+    const GitDiffPalette &pal = GitDiffPalette::current(isDark);
+
+    drawMarker(p, GitGutterMarkerIds::Added,    pal.fgAdded);
+    drawMarker(p, GitGutterMarkerIds::Modified, pal.fgModified);
+    drawMarker(p, GitGutterMarkerIds::Deleted,  pal.fgDeleted);
 }
 
 void HighlightedScrollBar::drawTickMark(QPainter &p, int y, int height, QColor color)

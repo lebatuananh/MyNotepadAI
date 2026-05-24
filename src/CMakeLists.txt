@@ -137,8 +137,16 @@ qt_add_executable(NotepadAI
 	decorators/EditorConfigAppDecorator.h
 	decorators/EditorDecorator.cpp
 	decorators/EditorDecorator.h
+	decorators/GitGutterDecorator.cpp
+	decorators/GitGutterDecorator.h
+	decorators/GitGutterDiffPopup.cpp
+	decorators/GitGutterDiffPopup.h
+	decorators/GitGutterMarkers.cpp
+	decorators/GitGutterMarkers.h
 	decorators/HighlightedScrollBar.cpp
 	decorators/HighlightedScrollBar.h
+	decorators/InlineBlameDecorator.cpp
+	decorators/InlineBlameDecorator.h
 	decorators/JustfileRecipeHighlighter.cpp
 	decorators/JustfileRecipeHighlighter.h
 	decorators/HTMLAutoCompleteDecorator.cpp
@@ -198,12 +206,20 @@ qt_add_executable(NotepadAI
 	git/BranchPickerPopup.h
 	git/BranchRefParser.cpp
 	git/BranchRefParser.h
+	git/BufferDiffEngine.cpp
+	git/BufferDiffEngine.h
+	git/CatFileBlobFetcher.cpp
+	git/CatFileBlobFetcher.h
 	git/ChangesPanel.cpp
 	git/ChangesPanel.h
 	git/CommitComposer.cpp
 	git/CommitComposer.h
 	git/FileEncodingDetector.cpp
 	git/FileEncodingDetector.h
+	git/GitBlameParser.cpp
+	git/GitBlameParser.h
+	git/GitBlameFetcher.cpp
+	git/GitBlameFetcher.h
 	git/GitController.cpp
 	git/GitController.h
 	git/GitCommitDetail.h
@@ -231,6 +247,8 @@ qt_add_executable(NotepadAI
 	git/GitError.h
 	git/GitErrorClassifier.cpp
 	git/GitErrorClassifier.h
+	git/GitBaseBlobCache.cpp
+	git/GitBaseBlobCache.h
 	git/GitFileAtShaFetcher.cpp
 	git/GitFileAtShaFetcher.h
 	git/GitHistoryFetcher.cpp
@@ -298,6 +316,9 @@ qt_add_executable(NotepadAI
 	widgets/DockMiddleClickCloser.h
     widgets/EditorInfoStatusBar.cpp
 	widgets/EditorInfoStatusBar.h
+	widgets/EditorMinimap.cpp
+	widgets/EditorMinimap.h
+	widgets/MinimapMath.h
 	widgets/FadingIndicator.cpp
 	widgets/FadingIndicator.h
 	widgets/QuickFindWidget.cpp
@@ -418,6 +439,7 @@ target_link_libraries(NotepadAI
         libvterm
         libptyqt
         xxhash
+        xdiff
 )
 
 target_compile_definitions(NotepadAI

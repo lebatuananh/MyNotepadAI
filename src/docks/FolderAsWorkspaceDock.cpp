@@ -336,7 +336,7 @@ void FolderAsWorkspaceDock::ensureGitTab()
         fallback->addWidget(gitTab);
     }
     connect(gitTab, &GitTabWidget::fileActivated,
-            this, &FolderAsWorkspaceDock::fileDoubleClicked);
+            this, &FolderAsWorkspaceDock::onGitTabFileActivated);
     connect(gitTab, &GitTabWidget::diffRequested,
             this, &FolderAsWorkspaceDock::gitDiffRequested);
     connect(gitTab, &GitTabWidget::openSubmoduleRequested,
@@ -475,9 +475,9 @@ GitDiffViewController *FolderAsWorkspaceDock::ensureGitDiffViewController()
     gitDiffViewController->setDarkPalette(app->isEffectiveThemeDark());
 
     connect(gitDiffViewController, &GitDiffViewController::diffRendered,
-            this, &FolderAsWorkspaceDock::gitDiffPreviewRendered);
+            this, &FolderAsWorkspaceDock::onGitDiffPreviewRendered);
     connect(gitDiffViewController, &GitDiffViewController::diffFailed,
-            this, &FolderAsWorkspaceDock::gitDiffPreviewFailed);
+            this, &FolderAsWorkspaceDock::onGitDiffPreviewFailed);
 
     connect(app, &NotepadNextApplication::effectiveThemeChanged,
             gitDiffViewController, [this, app]() {
@@ -490,7 +490,42 @@ GitDiffViewController *FolderAsWorkspaceDock::ensureGitDiffViewController()
 void FolderAsWorkspaceDock::showGitDiffPreview(const GitStatusEntry &entry)
 {
     if (auto *c = ensureGitDiffViewController()) {
+        m_diffRenderPending = true;
         c->showDiffFor(entry);
+    }
+}
+
+void FolderAsWorkspaceDock::onGitTabFileActivated(const QString &absPath)
+{
+    // If a diff is currently being fetched (single-click triggered it just
+    // before the double-click), defer the editor open so it activates AFTER
+    // the diff tab. Otherwise fire it now.
+    if (m_diffRenderPending) {
+        m_pendingEditorOpenPath = absPath;
+        return;
+    }
+    emit fileDoubleClicked(absPath);
+}
+
+void FolderAsWorkspaceDock::onGitDiffPreviewRendered(ScintillaNext *editor)
+{
+    m_diffRenderPending = false;
+    emit gitDiffPreviewRendered(editor);
+    if (!m_pendingEditorOpenPath.isEmpty()) {
+        const QString p = m_pendingEditorOpenPath;
+        m_pendingEditorOpenPath.clear();
+        emit fileDoubleClicked(p);
+    }
+}
+
+void FolderAsWorkspaceDock::onGitDiffPreviewFailed(const QString &relPath, const QString &message)
+{
+    m_diffRenderPending = false;
+    emit gitDiffPreviewFailed(relPath, message);
+    if (!m_pendingEditorOpenPath.isEmpty()) {
+        const QString p = m_pendingEditorOpenPath;
+        m_pendingEditorOpenPath.clear();
+        emit fileDoubleClicked(p);
     }
 }
 

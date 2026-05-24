@@ -102,6 +102,12 @@ public slots:
     // fullDiffFailed on error / empty repo.
     void requestFullDiff();
 
+    // Async fetch of `HEAD:<relPath>` as a raw blob, used by the buffer-diff
+    // engine to feed xdl_diff. Returns the bytes via catFileBlobReady or an
+    // error via catFileBlobFailed; both signals carry `relPath` so multiple
+    // in-flight requests can be demultiplexed by the caller.
+    void requestCatFileBlob(const QString &relPath);
+
 signals:
     void stateChanged(GitController::State s);
     void statusUpdated();
@@ -125,6 +131,11 @@ signals:
     void diffFailed(const QString &relPath, bool stagedSide, const QString &message);
     void fullDiffReady(const QByteArray &diff);
     void fullDiffFailed(const QString &message);
+    // HEAD-blob fetch result for the buffer-diff engine. `relPath` is the
+    // request key; `blob` is the raw bytes of `HEAD:<relPath>`. Empty blob
+    // is valid (empty file); the failure path emits catFileBlobFailed.
+    void catFileBlobReady(const QString &relPath, const QByteArray &blob);
+    void catFileBlobFailed(const QString &relPath, const QString &message);
 
 private:
     enum class OpKind : std::uint8_t {
@@ -134,6 +145,7 @@ private:
         SubmoduleNumstat,
         DiffPath,
         DiffAllCached, DiffAllWorktree,
+        CatFileBlob,
         Stage, Unstage, StageAll, UnstageAll,
         Commit,
         SwitchBranch, CreateBranch, Stash,

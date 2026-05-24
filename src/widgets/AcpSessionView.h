@@ -73,6 +73,7 @@ public:
     void clearBanner();
     void insertTextToInput(const QString &text);
     QString takeInputText();
+    QVector<QPair<QByteArray, QString>> takeInputImages();
     QStringList goalDebugLog() const;
 
     // Goal status feedback — called by the owning dock when goal state changes.

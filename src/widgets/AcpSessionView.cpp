@@ -1174,6 +1174,12 @@ QString AcpSessionView::takeInputText()
     return text;
 }
 
+QVector<QPair<QByteArray, QString>> AcpSessionView::takeInputImages()
+{
+    if (!m_attachmentList) return {};
+    return m_attachmentList->takeAll();
+}
+
 QStringList AcpSessionView::goalDebugLog() const
 {
     auto *dock = qobject_cast<AiAgentDock *>(parentWidget());

@@ -156,6 +156,91 @@ void TerminalManager::openTerminal(const QString &cwd)
     dock->terminalWidget()->setFocus();
 }
 
+void TerminalManager::openTask(const QString &cwd, const QString &command, const QString &name)
+{
+    {
+        QScopedPointer<IPtyProcess> probe(PtyQt::createPtyProcess(IPtyProcess::AutoPty));
+        if (!probe || !probe->isAvailable()) {
+#ifdef Q_OS_WIN
+            QMessageBox::critical(
+                m_mainWindow,
+                tr("Terminal"),
+                tr("Cannot open terminal: ConPTY is unavailable. The embedded terminal requires Windows 10 build 17763 (version 1809) or later."));
+#else
+            QMessageBox::critical(
+                m_mainWindow,
+                tr("Terminal"),
+                tr("Cannot open terminal: the platform PTY backend is unavailable."));
+#endif
+            return;
+        }
+    }
+
+    const QString configured = resolveShellCommand();
+    QString shell = configured;
+    if (!shell.isEmpty() && !shell.contains(QLatin1Char('/')) && !shell.contains(QLatin1Char('\\'))) {
+        const QString resolved = QStandardPaths::findExecutable(shell);
+        if (!resolved.isEmpty()) {
+            shell = resolved;
+        }
+    }
+
+    if (shell.isEmpty() || !QFileInfo::exists(shell)) {
+        QMessageBox::critical(
+            m_mainWindow,
+            tr("Terminal"),
+            tr("Cannot launch terminal: shell '%1' was not found. Set Terminal/ShellCommand in Preferences.").arg(configured));
+        return;
+    }
+
+    auto *dock = new TerminalDock(shell, cwd, command, name, m_mainWindow);
+    DockMiddleClickCloser::install(dock);
+
+    QPointer<TerminalDock> p(dock);
+    m_docks.append(p);
+
+    connect(dock, &QObject::destroyed, this, [this](QObject *obj) {
+        for (int i = m_docks.size() - 1; i >= 0; --i) {
+            if (m_docks[i].isNull() || m_docks[i].data() == obj) {
+                m_docks.removeAt(i);
+            }
+        }
+    });
+
+    if (m_app) {
+        const TerminalColorScheme scheme = m_app->isEffectiveThemeDark()
+            ? TerminalColorScheme::darkScheme()
+            : TerminalColorScheme::lightScheme();
+        dock->terminalWidget()->setColorScheme(scheme);
+
+        if (m_app->getSettings()) {
+            QFont f;
+            const QString fontStr = m_app->getSettings()->terminalFont();
+            if (!fontStr.isEmpty() && f.fromString(fontStr)) {
+                dock->terminalWidget()->setTerminalFont(f);
+            } else {
+                dock->terminalWidget()->setTerminalFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+            }
+        }
+    }
+
+    TerminalDock *existing = nullptr;
+    for (const auto &d : m_docks) {
+        if (d.isNull()) continue;
+        if (d.data() == dock) continue;
+        existing = d.data();
+        break;
+    }
+
+    m_mainWindow->addDockWidget(Qt::BottomDockWidgetArea, dock);
+    if (existing) {
+        m_mainWindow->tabifyDockWidget(existing, dock);
+    }
+    dock->setVisible(true);
+    dock->raise();
+    dock->terminalWidget()->setFocus();
+}
+
 void TerminalManager::applyTheme()
 {
     if (!m_app) return;

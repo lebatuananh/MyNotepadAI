@@ -40,6 +40,7 @@ public:
 
 public slots:
     void openTerminal(const QString &cwd);
+    void openTask(const QString &cwd, const QString &command, const QString &name);
     void applyTheme();
     void applyFont();
     void shutdown();

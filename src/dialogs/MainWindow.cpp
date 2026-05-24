@@ -1209,6 +1209,23 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
         }
     });
 
+    connect(ui->menuTasks, &QMenu::aboutToShow, this, [this]() {
+        ui->actionCreateTask->setEnabled(TerminalCwdResolver::canOpenInWorkspace(currentWorkspaceRoot()));
+    });
+
+    connect(ui->actionCreateTask, &QAction::triggered, this, [this]() {
+        const QString cwd = TerminalCwdResolver::resolveWorkspace(currentWorkspaceRoot());
+        if (cwd.isEmpty()) return;
+
+        bool ok = false;
+        const QString command = QInputDialog::getText(this, tr("Create Task"), tr("Command:"), QLineEdit::Normal, QString(), &ok);
+        if (!ok || command.trimmed().isEmpty()) return;
+
+        const QString name = QInputDialog::getText(this, tr("Create Task"), tr("Name (optional):"), QLineEdit::Normal, QString());
+
+        terminalManager->openTask(cwd, command.trimmed(), name.trimmed());
+    });
+
     connect(ui->menuAi, &QMenu::aboutToShow, this, [this]() {
         const QString workspaceRoot = currentWorkspaceRoot();
         QString activeFilePath;

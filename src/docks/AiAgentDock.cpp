@@ -260,10 +260,12 @@ void AiAgentDock::sendWithGoal()
     // Capture composer text BEFORE starting the goal — if empty, abort early
     // without spawning the judge process.
     QString composerText;
+    QVector<QPair<QByteArray, QString>> composerImages;
     if (m_view) {
         composerText = m_view->takeInputText();
+        composerImages = m_view->takeInputImages();
     }
-    if (composerText.isEmpty()) {
+    if (composerText.isEmpty() && composerImages.isEmpty()) {
         QMessageBox::information(this, tr("Send with Goal"),
                                  tr("Type a message before sending with a goal."));
         return;
@@ -340,13 +342,18 @@ void AiAgentDock::sendWithGoal()
         m_goalAgent->deleteLater();
         m_goalAgent = nullptr;
         // Restore the text we took from the composer.
-        if (m_view) m_view->insertTextToInput(composerText);
+        if (m_view) {
+            m_view->insertTextToInput(composerText);
+        }
         return;
     }
 
     // Goal started — now send the composer text to the target session.
     // The goal agent's promptEnded subscription is already wired, so it will
     // catch the response.
-    m_model->appendUserMessage(composerText, {});
-    m_connection->sendPrompt(composerText, {});
+    QList<QPair<QByteArray, QString>> imageList;
+    imageList.reserve(composerImages.size());
+    for (const auto &p : composerImages) imageList.append(p);
+    m_model->appendUserMessage(composerText, composerImages);
+    m_connection->sendPrompt(composerText, imageList);
 }

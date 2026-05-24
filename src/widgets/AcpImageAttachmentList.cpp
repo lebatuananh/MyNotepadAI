@@ -217,12 +217,9 @@ void AcpImageAttachmentList::rebuildLayout()
                 "QToolButton:pressed {"
                 "  background: rgba(0,0,0,0.92);"
                 "}"));
-            connect(removeBtn, &QToolButton::clicked, this, [this]() {
-                auto *btn = qobject_cast<QToolButton *>(sender());
-                if (!btn) return;
-                QWidget *itemW = btn->parentWidget();
+            connect(removeBtn, &QToolButton::clicked, this, [this, itemWidget]() {
                 for (int k = 0; k < m_items.size(); ++k) {
-                    if (m_items[k].widget == itemW) {
+                    if (m_items[k].widget == itemWidget) {
                         removeItemAt(k);
                         break;
                     }

@@ -20,7 +20,9 @@
 #define TERMINALDOCK_H
 
 #include <QDockWidget>
+#include <QString>
 
+class QToolButton;
 class TerminalWidget;
 
 class TerminalDock : public QDockWidget
@@ -29,16 +31,26 @@ class TerminalDock : public QDockWidget
 
 public:
     TerminalDock(const QString &shell, const QString &cwd, QWidget *parent = nullptr);
+    TerminalDock(const QString &shell, const QString &cwd, const QString &taskCommand, const QString &taskName, QWidget *parent = nullptr);
     ~TerminalDock() override;
 
     TerminalWidget *terminalWidget() const { return m_terminal; }
+    bool isTask() const { return !m_taskCommand.isEmpty(); }
 
 protected:
     void closeEvent(QCloseEvent *event) override;
 
 private:
+    void init(const QString &shell, const QString &cwd);
+    void setupTaskTitleBar();
+    void restartTask();
+
     TerminalWidget *m_terminal = nullptr;
     QString m_initialCwd;
+    QString m_shell;
+    QString m_taskCommand;
+    QString m_taskName;
+    QToolButton *m_restartBtn = nullptr;
 };
 
 #endif

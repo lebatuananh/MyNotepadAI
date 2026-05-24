@@ -51,6 +51,7 @@ public:
 
     bool isProcessRunning() const;
     void killProcess();
+    void writeToPty(const QByteArray &data);
 
     QString title() const { return m_title; }
     bool hasExited() const { return m_exited; }
@@ -81,7 +82,6 @@ private slots:
     void processPendingInput();
 
 private:
-    void writeToPty(const QByteArray &data);
     void recomputeMetrics();
     void requestResizeToViewport();
     QPoint pixelToCell(const QPoint &p) const;

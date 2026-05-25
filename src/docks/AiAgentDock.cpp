@@ -92,6 +92,9 @@ void AiAgentDock::wireConnectionSignals()
                 m_goalAgent->stop();
             }
         }, Qt::UniqueConnection);
+        connect(m_view, &AcpSessionView::inputFocused,
+                this, &AiAgentDock::inputFocused,
+                Qt::UniqueConnection);
     }
 }
 
@@ -379,4 +382,5 @@ void AiAgentDock::sendWithGoal()
     for (const auto &p : composerImages) imageList.append(p);
     m_model->appendUserMessage(composerText, composerImages);
     m_connection->sendPrompt(composerText, imageList);
+    emit inputFocused();
 }

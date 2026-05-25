@@ -3330,24 +3330,29 @@ void MainWindow::attachAiAgentDock(AiAgentDock *dock)
         }
     }
 
-    connect(dock, &QDockWidget::visibilityChanged, this, [this, dock](bool visible) {
-        if (visible) {
-            m_activeAiDock = dock;
-
-            if (isVisible() && app->getSettings()->syncWorkspaceOnAiSwitch()) {
-                const QString aiCwd = QDir::cleanPath(dock->workingDirectory());
-                if (!aiCwd.isEmpty()) {
-                    for (auto *ws : findChildren<FolderAsWorkspaceDock *>()) {
-                        if (QDir::cleanPath(ws->rootPath()) == aiCwd) {
-                            ws->setVisible(true);
-                            ws->raise();
-                            break;
-                        }
-                    }
-                }
+    auto syncWorkspaceForDock = [this, dock]() {
+        if (!isVisible() || !app->getSettings()->syncWorkspaceOnAiSwitch())
+            return;
+        const QString aiCwd = QDir::cleanPath(dock->workingDirectory());
+        if (aiCwd.isEmpty())
+            return;
+        for (auto *ws : findChildren<FolderAsWorkspaceDock *>()) {
+            if (QDir::cleanPath(ws->rootPath()) == aiCwd) {
+                ws->setVisible(true);
+                ws->raise();
+                break;
             }
         }
+    };
+
+    connect(dock, &QDockWidget::visibilityChanged, this, [this, dock, syncWorkspaceForDock](bool visible) {
+        if (visible) {
+            m_activeAiDock = dock;
+            syncWorkspaceForDock();
+        }
     });
+
+    connect(dock, &AiAgentDock::inputFocused, this, syncWorkspaceForDock);
 
     addDockWidget(AiAgentDock::defaultArea(), dock);
     if (existing) {

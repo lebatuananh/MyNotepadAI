@@ -95,6 +95,7 @@ signals:
     void restartSessionRequested();
     void sendWithGoalRequested();
     void goalStopRequested();
+    void inputFocused();
 
 private slots:
     void onShowDebugLogClicked();

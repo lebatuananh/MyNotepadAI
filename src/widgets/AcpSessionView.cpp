@@ -477,6 +477,7 @@ void AcpSessionView::buildUi()
     };
     cb->setMaximumHeight(120);
     m_input = cb;
+    m_input->installEventFilter(this);
     outer->addWidget(m_input);
 
     // Slash-command completion popup (frameless, positioned above input).
@@ -1292,6 +1293,7 @@ void AcpSessionView::onSendClicked()
 
     m_input->clear();
     m_currentGroupCards.clear();
+    emit inputFocused();
     // Sending is a fresh focus on the conversation — re-engage the stream
     // even if the user had scrolled up earlier.
     m_stickToBottom = true;
@@ -1613,6 +1615,9 @@ bool AcpSessionView::eventFilter(QObject *watched, QEvent *event)
             || (m_scroll && watched == m_scroll->viewport()))) {
         syncTranscriptHostWidth();
         positionJumpButton();
+    }
+    if (event->type() == QEvent::FocusIn && watched == m_input) {
+        emit inputFocused();
     }
     return QWidget::eventFilter(watched, event);
 }

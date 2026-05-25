@@ -85,6 +85,7 @@ signals:
     // Carries the CURRENT (about-to-be-replaced) session id so the manager
     // can clean up history etc. Connected by AcpAgentManager.
     void restartRequested(const QString &oldSessionId);
+    void inputFocused();
 
 protected:
     void closeEvent(QCloseEvent *event) override;

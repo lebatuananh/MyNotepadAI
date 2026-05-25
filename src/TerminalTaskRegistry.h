@@ -27,6 +27,8 @@ struct TerminalTask
 {
     QString name;
     QString command;
+    QString env; // raw .env text (KEY=VALUE per line, # comments, blank lines)
+    QString cwd; // relative to workspace root, or absolute; empty = workspace root
 };
 
 // Pure task-persistence layer. No UI, no PTY, no MainWindow dependency.
@@ -44,6 +46,7 @@ public:
 
     QList<TerminalTask> tasksForWorkspace(const QString &workspacePath) const;
     void addTask(const QString &workspacePath, const TerminalTask &task);
+    void setTasks(const QString &workspacePath, const QList<TerminalTask> &tasks);
 
 private:
     ApplicationSettings *m_settings;

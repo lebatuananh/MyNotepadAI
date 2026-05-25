@@ -114,6 +114,7 @@ private:
     GoalAgent *m_goalAgent = nullptr; // owned
     class AcpSessionView *m_view = nullptr; // owned via setWidget
     bool m_agentExited = false;
+    bool m_restartDialogShowing = false;
     QStringList m_goalDebugLog;
 };
 

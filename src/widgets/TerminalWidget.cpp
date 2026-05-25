@@ -338,7 +338,7 @@ void TerminalWidget::updateScrollbarRange()
     }
 }
 
-bool TerminalWidget::start(const QString &shell, const QString &cwd)
+bool TerminalWidget::start(const QString &shell, const QString &cwd, const QStringList &env)
 {
     if (m_pty) {
         return false;
@@ -389,7 +389,7 @@ bool TerminalWidget::start(const QString &shell, const QString &cwd)
         return false;
     }
 
-    if (!m_pty->startProcess(shell, cwd, QStringList(), static_cast<qint16>(m_cols), static_cast<qint16>(m_rows))) {
+    if (!m_pty->startProcess(shell, cwd, env, static_cast<qint16>(m_cols), static_cast<qint16>(m_rows))) {
         m_errorMessage = tr("Terminal: failed to launch shell '%1'.\n%2").arg(shell, m_pty->lastError());
         emit spawnFailed(m_errorMessage);
         viewport()->update();
@@ -492,6 +492,15 @@ void TerminalWidget::writeToPty(const QByteArray &data)
 {
     if (m_pty) {
         m_pty->write(data);
+    }
+}
+
+void TerminalWidget::injectOutput(const QByteArray &data)
+{
+    if (!m_vt || data.isEmpty()) return;
+    m_pendingInput.append(data);
+    if (!m_batchTimer->isActive()) {
+        m_batchTimer->start();
     }
 }
 

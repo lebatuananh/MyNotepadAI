@@ -30,6 +30,7 @@
 #include <QPoint>
 #include <QRegion>
 #include <QString>
+#include <QStringList>
 #include <QTimer>
 #include <QVector>
 
@@ -46,7 +47,8 @@ public:
     explicit TerminalWidget(QWidget *parent = nullptr);
     ~TerminalWidget() override;
 
-    bool start(const QString &shell, const QString &cwd);
+    bool start(const QString &shell, const QString &cwd, const QStringList &env = {});
+    void injectOutput(const QByteArray &data);
     void setColorScheme(const TerminalColorScheme &scheme);
     void setTerminalFont(const QFont &font);
 

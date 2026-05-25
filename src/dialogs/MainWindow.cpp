@@ -39,7 +39,6 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
-#include <QFormLayout>
 #include <QLineEdit>
 #include <QPrintPreviewDialog>
 #include <QPrinter>
@@ -79,6 +78,7 @@
 #include "TerminalManager.h"
 #include "TerminalCwdResolver.h"
 #include "TerminalTaskRegistry.h"
+#include "EditTasksDialog.h"
 
 #include "FindReplaceDialog.h"
 #include "MacroRunDialog.h"
@@ -1219,12 +1219,11 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
         const QString workspaceRoot = TerminalTaskRegistry::normalizeWorkspacePath(currentWorkspaceRoot());
         const bool hasWorkspace = TerminalCwdResolver::canOpenInWorkspace(workspaceRoot);
 
-        ui->actionCreateTask->setEnabled(hasWorkspace);
+        ui->actionEditTasks->setEnabled(hasWorkspace);
 
         // Remove previously-built task actions (everything after the separator).
         // The separator is the second action; task actions follow it.
         const QList<QAction *> actions = ui->menuTasks->actions();
-        // Find the separator and remove everything after it.
         bool pastSeparator = false;
         for (QAction *a : actions) {
             if (pastSeparator) {
@@ -1244,51 +1243,25 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
 
         for (const TerminalTask &task : tasks) {
             QAction *action = ui->menuTasks->addAction(task.name);
-            const QString cmd = task.command;
-            const QString name = task.name;
-            connect(action, &QAction::triggered, this, [this, workspaceRoot, cmd, name]() {
+            const TerminalTask capturedTask = task;
+            connect(action, &QAction::triggered, this, [this, workspaceRoot, capturedTask]() {
                 const QString cwd = TerminalCwdResolver::resolveWorkspace(workspaceRoot);
                 if (cwd.isEmpty()) return;
-                terminalManager->openTask(cwd, cmd, name);
+                terminalManager->openTask(cwd, capturedTask);
             });
         }
     });
 
-    connect(ui->actionCreateTask, &QAction::triggered, this, [this]() {
+    connect(ui->actionEditTasks, &QAction::triggered, this, [this]() {
         const QString workspaceRoot = TerminalTaskRegistry::normalizeWorkspacePath(currentWorkspaceRoot());
         const QString cwd = TerminalCwdResolver::resolveWorkspace(workspaceRoot);
         if (cwd.isEmpty()) return;
 
-        QDialog dlg(this);
-        dlg.setWindowTitle(tr("Create Task"));
-        auto *layout = new QFormLayout(&dlg);
-        auto *nameEdit    = new QLineEdit(&dlg);
-        auto *commandEdit = new QLineEdit(&dlg);
-        auto *buttons = new QDialogButtonBox(
-            QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
-        layout->addRow(tr("Name:"),    nameEdit);
-        layout->addRow(tr("Command:"), commandEdit);
-        layout->addRow(buttons);
-        connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
-        connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
-
-        if (dlg.exec() != QDialog::Accepted)
-            return;
-        const QString command = commandEdit->text().trimmed();
-        if (command.isEmpty()) return;
-        const QString name = nameEdit->text().trimmed();
-        const QString effectiveName = name.isEmpty() ? command : name;
-
         const QList<TerminalTask> existing = terminalManager->tasksForWorkspace(workspaceRoot);
-        for (const TerminalTask &t : existing) {
-            if (t.name == effectiveName) {
-                QMessageBox::warning(this, tr("Create Task"),
-                    tr("A task named \"%1\" already exists in this workspace.").arg(effectiveName));
-                return;
-            }
+        EditTasksDialog dlg(cwd, existing, this);
+        if (dlg.exec() == QDialog::Accepted) {
+            terminalManager->setTasks(workspaceRoot, dlg.tasks());
         }
-
-        terminalManager->addTask(workspaceRoot, {effectiveName, command});
     });
 
     connect(ui->menuAi, &QMenu::aboutToShow, this, [this]() {

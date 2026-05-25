@@ -21,6 +21,7 @@
 
 #include <QDockWidget>
 #include <QString>
+#include <QStringList>
 
 class QToolButton;
 class TerminalWidget;
@@ -31,11 +32,12 @@ class TerminalDock : public QDockWidget
 
 public:
     TerminalDock(const QString &shell, const QString &cwd, QWidget *parent = nullptr);
-    TerminalDock(const QString &shell, const QString &cwd, const QString &taskCommand, const QString &taskName, QWidget *parent = nullptr);
+    TerminalDock(const QString &shell, const QString &cwd, const QString &taskCommand, const QString &taskName, const QStringList &env, QWidget *parent = nullptr);
     ~TerminalDock() override;
 
     TerminalWidget *terminalWidget() const { return m_terminal; }
     bool isTask() const { return !m_taskCommand.isEmpty(); }
+    void setCwdWarning(const QString &warning) { m_cwdWarning = warning; }
 
 protected:
     void closeEvent(QCloseEvent *event) override;
@@ -50,6 +52,8 @@ private:
     QString m_shell;
     QString m_taskCommand;
     QString m_taskName;
+    QStringList m_taskEnv;
+    QString m_cwdWarning;
     QToolButton *m_restartBtn = nullptr;
 };
 

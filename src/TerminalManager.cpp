@@ -33,6 +33,7 @@
 #include "ptyqt.h"
 
 #include <QAction>
+#include <QDir>
 #include <QFileInfo>
 #include <QFont>
 #include <QFontDatabase>
@@ -162,7 +163,37 @@ void TerminalManager::openTerminal(const QString &cwd)
     dock->terminalWidget()->setFocus();
 }
 
-void TerminalManager::openTask(const QString &cwd, const QString &command, const QString &name)
+static QStringList parseEnvText(const QString &envText)
+{
+    QStringList result;
+    if (envText.isEmpty()) return result;
+    const QStringList lines = envText.split(QLatin1Char('\n'));
+    for (const QString &rawLine : lines) {
+        const QString line = rawLine.trimmed();
+        if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
+            continue;
+        const int eq = line.indexOf(QLatin1Char('='));
+        if (eq <= 0)
+            continue;
+        const QString key = line.left(eq).trimmed();
+        if (key.isEmpty())
+            continue;
+        QString value = line.mid(eq + 1).trimmed();
+        // Strip surrounding quotes
+        if (value.size() >= 2) {
+            const QChar first = value.front();
+            const QChar last = value.back();
+            if ((first == QLatin1Char('"') && last == QLatin1Char('"')) ||
+                (first == QLatin1Char('\'') && last == QLatin1Char('\''))) {
+                value = value.mid(1, value.size() - 2);
+            }
+        }
+        result.append(key + QLatin1Char('=') + value);
+    }
+    return result;
+}
+
+void TerminalManager::openTask(const QString &workspaceCwd, const TerminalTask &task)
 {
     {
         QScopedPointer<IPtyProcess> probe(PtyQt::createPtyProcess(IPtyProcess::AutoPty));
@@ -199,7 +230,26 @@ void TerminalManager::openTask(const QString &cwd, const QString &command, const
         return;
     }
 
-    auto *dock = new TerminalDock(shell, cwd, command, name, m_mainWindow);
+    // Resolve cwd: relative → join with workspace, absolute → use directly, empty → workspace
+    QString resolvedCwd = workspaceCwd;
+    QString cwdWarning;
+    if (!task.cwd.isEmpty()) {
+        QString taskCwd = task.cwd;
+        if (QDir::isRelativePath(taskCwd)) {
+            taskCwd = QDir::cleanPath(workspaceCwd + QLatin1Char('/') + taskCwd);
+        }
+        if (QDir(taskCwd).exists()) {
+            resolvedCwd = taskCwd;
+        } else {
+            cwdWarning = tr("Directory '%1' not found, using workspace root.").arg(task.cwd);
+        }
+    }
+
+    const QStringList env = parseEnvText(task.env);
+
+    auto *dock = new TerminalDock(shell, resolvedCwd, task.command, task.name, env, m_mainWindow);
+    if (!cwdWarning.isEmpty())
+        dock->setCwdWarning(cwdWarning);
     DockMiddleClickCloser::install(dock);
     wireContextMenu(dock);
 
@@ -304,6 +354,13 @@ void TerminalManager::addTask(const QString &workspacePath, const TerminalTask &
     if (!m_app || !m_app->getSettings())
         return;
     TerminalTaskRegistry(m_app->getSettings()).addTask(workspacePath, task);
+}
+
+void TerminalManager::setTasks(const QString &workspacePath, const QList<TerminalTask> &tasks)
+{
+    if (!m_app || !m_app->getSettings())
+        return;
+    TerminalTaskRegistry(m_app->getSettings()).setTasks(workspacePath, tasks);
 }
 
 void TerminalManager::wireContextMenu(TerminalDock *dock)

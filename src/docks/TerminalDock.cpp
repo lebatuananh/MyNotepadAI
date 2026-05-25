@@ -36,12 +36,13 @@ TerminalDock::TerminalDock(const QString &shell, const QString &cwd, QWidget *pa
     init(shell, cwd);
 }
 
-TerminalDock::TerminalDock(const QString &shell, const QString &cwd, const QString &taskCommand, const QString &taskName, QWidget *parent)
+TerminalDock::TerminalDock(const QString &shell, const QString &cwd, const QString &taskCommand, const QString &taskName, const QStringList &env, QWidget *parent)
     : QDockWidget(parent)
     , m_initialCwd(cwd)
     , m_shell(shell)
     , m_taskCommand(taskCommand)
     , m_taskName(taskName.isEmpty() ? taskCommand : taskName)
+    , m_taskEnv(env)
 {
     init(shell, cwd);
     setupTaskTitleBar();
@@ -72,10 +73,15 @@ void TerminalDock::init(const QString &shell, const QString &cwd)
         QMessageBox::critical(this, tr("Terminal"), msg);
     });
 
-    m_terminal->start(shell, cwd);
+    m_terminal->start(shell, cwd, m_taskEnv);
 
     if (!m_taskCommand.isEmpty()) {
         connect(m_terminal, &TerminalWidget::firstOutputReceived, this, [this]() {
+            if (!m_cwdWarning.isEmpty()) {
+                QByteArray warning = QStringLiteral("\x1b[33m⚠ %1\x1b[0m\r\n")
+                    .arg(m_cwdWarning).toUtf8();
+                m_terminal->injectOutput(warning);
+            }
             QByteArray cmd = m_taskCommand.toUtf8();
             cmd.append('\r');
             m_terminal->writeToPty(cmd);
@@ -119,9 +125,14 @@ void TerminalDock::restartTask()
         QMessageBox::critical(this, tr("Terminal"), msg);
     });
 
-    m_terminal->start(m_shell, m_initialCwd);
+    m_terminal->start(m_shell, m_initialCwd, m_taskEnv);
 
     connect(m_terminal, &TerminalWidget::firstOutputReceived, this, [this]() {
+        if (!m_cwdWarning.isEmpty()) {
+            QByteArray warning = QStringLiteral("\x1b[33m⚠ %1\x1b[0m\r\n")
+                .arg(m_cwdWarning).toUtf8();
+            m_terminal->injectOutput(warning);
+        }
         QByteArray cmd = m_taskCommand.toUtf8();
         cmd.append('\r');
         m_terminal->writeToPty(cmd);

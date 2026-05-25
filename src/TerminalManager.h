@@ -43,10 +43,11 @@ public:
     // Per-workspace task registry. workspacePath must be QDir::cleanPath'd.
     QList<TerminalTask> tasksForWorkspace(const QString &workspacePath) const;
     void addTask(const QString &workspacePath, const TerminalTask &task);
+    void setTasks(const QString &workspacePath, const QList<TerminalTask> &tasks);
 
 public slots:
     void openTerminal(const QString &cwd);
-    void openTask(const QString &cwd, const QString &command, const QString &name);
+    void openTask(const QString &workspaceCwd, const TerminalTask &task);
     void applyTheme();
     void applyFont();
     void shutdown();

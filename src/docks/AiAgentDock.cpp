@@ -118,16 +118,20 @@ void AiAgentDock::onRetryFromView()
 
 void AiAgentDock::onRestartFromView()
 {
+    if (m_restartDialogShowing) return;
+
     // Mirror closeEvent's safety net: a restart is destructive to the running
     // turn, so confirm if the agent is mid-prompt. The manager tears down the
     // old connection during rebind, which would cancel the in-flight call.
     if (m_model && m_model->isProcessing()) {
+        m_restartDialogShowing = true;
         const QMessageBox::StandardButton choice = QMessageBox::question(
             this,
             tr("AI Agent"),
             tr("A prompt is still running. Restart the session anyway?"),
             QMessageBox::Yes | QMessageBox::No,
             QMessageBox::No);
+        m_restartDialogShowing = false;
         if (choice != QMessageBox::Yes) {
             return;
         }

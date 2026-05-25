@@ -59,8 +59,10 @@ QList<TerminalTask> TerminalTaskRegistry::tasksForWorkspace(const QString &works
         const QJsonObject obj = v.toObject();
         const QString name    = obj.value(QStringLiteral("name")).toString();
         const QString command = obj.value(QStringLiteral("command")).toString();
+        const QString env     = obj.value(QStringLiteral("env")).toString();
+        const QString cwd     = obj.value(QStringLiteral("cwd")).toString();
         if (!command.isEmpty())
-            result.append({name.isEmpty() ? command : name, command});
+            result.append({name.isEmpty() ? command : name, command, env, cwd});
     }
     return result;
 }
@@ -83,8 +85,49 @@ void TerminalTaskRegistry::addTask(const QString &workspacePath, const TerminalT
     QJsonObject entry;
     entry.insert(QStringLiteral("name"),    task.name.isEmpty() ? task.command : task.name);
     entry.insert(QStringLiteral("command"), task.command);
+    if (!task.env.isEmpty())
+        entry.insert(QStringLiteral("env"), task.env);
+    if (!task.cwd.isEmpty())
+        entry.insert(QStringLiteral("cwd"), task.cwd);
     arr.append(entry);
     root.insert(key, arr);
+
+    m_settings->setWorkspaceTasksJson(
+        QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Compact)));
+}
+
+void TerminalTaskRegistry::setTasks(const QString &workspacePath, const QList<TerminalTask> &tasks)
+{
+    if (!m_settings || workspacePath.isEmpty())
+        return;
+
+    const QString raw = m_settings->workspaceTasksJson();
+    QJsonObject root;
+    if (!raw.isEmpty()) {
+        const QJsonDocument doc = QJsonDocument::fromJson(raw.toUtf8());
+        if (doc.isObject())
+            root = doc.object();
+    }
+
+    const QString key = normalizeWorkspacePath(workspacePath);
+    QJsonArray arr;
+    for (const TerminalTask &task : tasks) {
+        if (task.command.isEmpty())
+            continue;
+        QJsonObject entry;
+        entry.insert(QStringLiteral("name"), task.name.isEmpty() ? task.command : task.name);
+        entry.insert(QStringLiteral("command"), task.command);
+        if (!task.env.isEmpty())
+            entry.insert(QStringLiteral("env"), task.env);
+        if (!task.cwd.isEmpty())
+            entry.insert(QStringLiteral("cwd"), task.cwd);
+        arr.append(entry);
+    }
+
+    if (arr.isEmpty())
+        root.remove(key);
+    else
+        root.insert(key, arr);
 
     m_settings->setWorkspaceTasksJson(
         QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Compact)));

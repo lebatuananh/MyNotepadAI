@@ -109,11 +109,19 @@ public:
     }
 
     std::function<void()> onSubmit;
+    std::function<void()> onRestart;
     std::function<bool(QKeyEvent *)> onKeyFilter;
 
 protected:
     bool event(QEvent *e) override
     {
+        if (e->type() == QEvent::ShortcutOverride) {
+            auto *ke = static_cast<QKeyEvent *>(e);
+            if (ke->key() == Qt::Key_N && ke->modifiers() == Qt::ControlModifier && onRestart) {
+                e->accept();
+                return true;
+            }
+        }
         if (e->type() == QEvent::KeyPress) {
             auto *ke = static_cast<QKeyEvent *>(e);
             if (ke->key() == Qt::Key_Tab && onKeyFilter && onKeyFilter(ke))
@@ -124,6 +132,9 @@ protected:
 
     void keyPressEvent(QKeyEvent *event) override
     {
+        if (event->key() == Qt::Key_N && event->modifiers() == Qt::ControlModifier) {
+            if (onRestart) { onRestart(); return; }
+        }
         if (onKeyFilter && onKeyFilter(event))
             return;
         if ((event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter)
@@ -416,6 +427,7 @@ void AcpSessionView::buildUi()
     // 6. Input.
     auto *cb = new ChatInputEditCb(m_attachmentList, this);
     cb->onSubmit = [this]() { onSendClicked(); };
+    cb->onRestart = [this]() { emit restartSessionRequested(); };
     cb->onKeyFilter = [this](QKeyEvent *ke) -> bool {
         if (!m_commandPopup || !m_commandPopup->isVisible())
             return false;

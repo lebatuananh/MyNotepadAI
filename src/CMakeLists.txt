@@ -176,6 +176,8 @@ qt_add_executable(NotepadAI
 	dialogs/AcpAgentSettingsDialog.ui
 	dialogs/SendWithGoalDialog.cpp
 	dialogs/SendWithGoalDialog.h
+	dialogs/EditTasksDialog.cpp
+	dialogs/EditTasksDialog.h
 	dialogs/ColumnEditorDialog.cpp
 	dialogs/ColumnEditorDialog.h
 	dialogs/ColumnEditorDialog.ui

@@ -13,7 +13,9 @@
 #include <QThread>
 #include <QTimer>
 
+#include <map>
 #include <stdlib.h>
+#include <string>
 
 bool WindowsContext::init()
 {
@@ -133,7 +135,57 @@ bool ConPtyProcess::startProcess(const QString &shellPath, const QString &workin
 
     m_shellPath = shellPath;
     m_size = QPair<qint16, qint16>(cols, rows);
-    Q_UNUSED(environment);
+
+    // Build environment block if custom env vars are provided.
+    std::vector<wchar_t> envBlock;
+    LPVOID lpEnvironment = nullptr;
+    DWORD extraFlags = 0;
+    if (!environment.isEmpty()) {
+        // Parse parent environment into a case-insensitive sorted map.
+        struct WCILess {
+            bool operator()(const std::wstring &a, const std::wstring &b) const {
+                int r = CompareStringOrdinal(a.c_str(), static_cast<int>(a.size()),
+                                             b.c_str(), static_cast<int>(b.size()), TRUE);
+                return r == CSTR_LESS_THAN;
+            }
+        };
+        std::map<std::wstring, std::wstring, WCILess> envMap;
+
+        LPWCH parentBlock = GetEnvironmentStringsW();
+        if (parentBlock) {
+            for (LPCWSTR p = parentBlock; *p; p += wcslen(p) + 1) {
+                std::wstring entry(p);
+                // =X: pseudo-vars have '=' at pos 0; split on first '=' after that.
+                size_t eq = entry.find(L'=', (entry[0] == L'=') ? 1 : 0);
+                if (eq != std::wstring::npos) {
+                    envMap[entry.substr(0, eq)] = entry.substr(eq + 1);
+                }
+            }
+            FreeEnvironmentStringsW(parentBlock);
+        }
+
+        // Merge custom environment (override or unset if value is empty).
+        for (const QString &kv : environment) {
+            const int eq = kv.indexOf(QLatin1Char('='));
+            if (eq > 0) {
+                std::wstring key = kv.left(eq).toStdWString();
+                std::wstring val = kv.mid(eq + 1).toStdWString();
+                envMap[key] = val;
+            }
+        }
+
+        // Serialize to flat Unicode block: KEY=VALUE\0 ... \0\0
+        for (const auto &[k, v] : envMap) {
+            envBlock.insert(envBlock.end(), k.begin(), k.end());
+            envBlock.push_back(L'=');
+            envBlock.insert(envBlock.end(), v.begin(), v.end());
+            envBlock.push_back(L'\0');
+        }
+        envBlock.push_back(L'\0');
+
+        lpEnvironment = envBlock.data();
+        extraFlags = CREATE_UNICODE_ENVIRONMENT;
+    }
 
     HRESULT hr = createPseudoConsoleAndPipes(&m_ptyHandler, &m_hPipeIn, &m_hPipeOut, cols, rows);
     if (hr != S_OK) {
@@ -167,8 +219,8 @@ bool ConPtyProcess::startProcess(const QString &shellPath, const QString &workin
         nullptr,
         nullptr,
         FALSE,
-        EXTENDED_STARTUPINFO_PRESENT,
-        nullptr,
+        EXTENDED_STARTUPINFO_PRESENT | extraFlags,
+        lpEnvironment,
         cwd,
         &startupInfo.StartupInfo,
         &piClient);

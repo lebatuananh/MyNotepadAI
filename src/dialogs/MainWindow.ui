@@ -349,7 +349,7 @@
      <property name="title">
       <string>Tasks</string>
      </property>
-     <addaction name="actionCreateTask"/>
+     <addaction name="actionEditTasks"/>
      <addaction name="separator"/>
     </widget>
     <addaction name="actionOpenTerminalInWorkspace"/>
@@ -1074,9 +1074,9 @@
     <string>Open Terminal in Folder</string>
    </property>
   </action>
-  <action name="actionCreateTask">
+  <action name="actionEditTasks">
    <property name="text">
-    <string>Create Task…</string>
+    <string>Edit Tasks…</string>
    </property>
   </action>
   <action name="actionQuickFind">

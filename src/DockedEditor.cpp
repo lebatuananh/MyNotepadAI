@@ -230,7 +230,6 @@ void DockedEditor::addPreviewEditor(ScintillaNext *editor)
     }
 
     m_previewEditor = editor;
-    addEditor(editor);
 
     ads::CDockWidget *dockWidget = qobject_cast<ads::CDockWidget *>(editor->parentWidget());
     if (dockWidget) {

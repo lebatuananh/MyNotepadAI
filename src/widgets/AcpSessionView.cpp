@@ -616,9 +616,12 @@ void AcpSessionView::wireSignals()
             resetElapsed();
             if (!m_planWidget) {
                 m_planWidget = new AcpPlanWidget(m_transcriptHost);
+                connect(m_planWidget, &AcpPlanWidget::resumeRequested,
+                        this, &AcpSessionView::onPlanResumeRequested);
                 insertTimelineWidget(m_planWidget);
             }
             m_planWidget->setEntries(entries);
+            m_planWidget->setAgentIdle(!m_model || !m_model->isProcessing());
             scrollToBottomDeferred();
         });
     }
@@ -942,6 +945,17 @@ void AcpSessionView::onPlanUpdated()
     // entries; we keep the slot wired for symmetry with future model changes.
 }
 
+void AcpSessionView::onPlanResumeRequested(const QString &prompt)
+{
+    if (!m_connection || !m_model) return;
+    if (m_model->isProcessing()) return;
+
+    m_model->appendUserMessage(prompt, {});
+    m_connection->sendPrompt(prompt, {});
+    m_stickToBottom = true;
+    scrollToBottomDeferred();
+}
+
 void AcpSessionView::onUsageChanged()
 {
     if (m_model) m_usageIndicator->setUsage(m_model->usage());
@@ -1085,6 +1099,7 @@ void AcpSessionView::onIsProcessingChanged(bool processing)
             }
         }
     }
+    if (m_planWidget) m_planWidget->setAgentIdle(!processing);
 }
 
 void AcpSessionView::onTurnEnded(int groupId)

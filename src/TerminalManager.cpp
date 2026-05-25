@@ -22,6 +22,7 @@
 #include "MainWindow.h"
 #include "NotepadNextApplication.h"
 #include "TerminalDock.h"
+#include "TerminalTaskRegistry.h"
 #include "TerminalWidget.h"
 #include "TerminalColorScheme.h"
 #include "DockMiddleClickCloser.h"
@@ -283,4 +284,18 @@ void TerminalManager::shutdown()
             w->killProcess();
         }
     }
+}
+
+QList<TerminalTask> TerminalManager::tasksForWorkspace(const QString &workspacePath) const
+{
+    if (!m_app || !m_app->getSettings())
+        return {};
+    return TerminalTaskRegistry(m_app->getSettings()).tasksForWorkspace(workspacePath);
+}
+
+void TerminalManager::addTask(const QString &workspacePath, const TerminalTask &task)
+{
+    if (!m_app || !m_app->getSettings())
+        return;
+    TerminalTaskRegistry(m_app->getSettings()).addTask(workspacePath, task);
 }

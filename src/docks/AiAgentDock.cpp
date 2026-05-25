@@ -172,7 +172,26 @@ void AiAgentDock::rebind(AcpConnection *connection,
     refreshTitle();
 }
 
-AiAgentDock::~AiAgentDock() = default;
+AiAgentDock::~AiAgentDock()
+{
+    // GoalAgent is a direct child of this dock, but the view (m_view) is a
+    // grandchild (reparented into QDockWidget's internal container by
+    // setWidget()). QWidget::~QWidget::deleteChildren iterates forward, so the
+    // container (and thus the view) is destroyed BEFORE GoalAgent. If GoalAgent
+    // is active, its destructor emits statusChanged which our lambda delivers
+    // to the already-freed view → use-after-free. Destroy it here first.
+    delete m_goalAgent;
+    m_goalAgent = nullptr;
+
+    // Disconnect non-owning pointers so no late signals arrive during the
+    // remainder of the destructor chain.
+    if (m_connection) {
+        disconnect(m_connection, nullptr, this, nullptr);
+    }
+    if (m_model) {
+        disconnect(m_model, nullptr, this, nullptr);
+    }
+}
 
 void AiAgentDock::closeEvent(QCloseEvent *event)
 {

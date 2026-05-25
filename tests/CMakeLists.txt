@@ -78,6 +78,18 @@ target_sources(test_application_settings_terminal PRIVATE
 )
 add_test(NAME ApplicationSettingsTerminal COMMAND test_application_settings_terminal)
 
+# --- TerminalTaskRegistry: addTask/tasksForWorkspace round-trip + path normalization ---
+qt_add_executable(test_terminal_task_registry test_terminal_task_registry.cpp)
+target_include_directories(test_terminal_task_registry PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_terminal_task_registry PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
+target_sources(test_terminal_task_registry PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/ApplicationSettings.cpp
+    ${CMAKE_SOURCE_DIR}/src/ApplicationSettings.h
+    ${CMAKE_SOURCE_DIR}/src/TerminalTaskRegistry.cpp
+    ${CMAKE_SOURCE_DIR}/src/TerminalTaskRegistry.h
+)
+add_test(NAME TerminalTaskRegistry COMMAND test_terminal_task_registry)
+
 # --- ScrollbackBuffer: bounded history ring used by TerminalWidget for sb_pushline/sb_popline ---
 qt_add_executable(test_scrollback_buffer test_scrollback_buffer.cpp)
 target_include_directories(test_scrollback_buffer PRIVATE ${CMAKE_SOURCE_DIR}/src/widgets)

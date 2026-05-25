@@ -407,7 +407,7 @@ void AcpConnection::sendNotification(const char *method, const QJsonValue &param
     if (!m_process || m_process->state() == QProcess::NotRunning) {
         return;
     }
-    QJsonObject obj = makeRpcEnvelope(QJsonValue(), QString::fromLatin1(method), params);
+    QJsonObject obj = makeRpcEnvelope(QJsonValue(QJsonValue::Undefined), QString::fromLatin1(method), params);
     QByteArray bytes = QJsonDocument(obj).toJson(QJsonDocument::Compact);
     bytes.append('\n');
     appendDebugFrameLog("→", bytes);
@@ -731,7 +731,15 @@ void AcpConnection::handleInboundNotification(const QString &method, const QJson
         for (const auto &v : update.value(QStringLiteral("entries")).toArray()) {
             const QJsonObject o = v.toObject();
             AcpProtocol::AcpPlanEntry e;
-            e.text = o.value(QStringLiteral("text")).toString();
+            // Agents use varying field names for the entry label.
+            // Fallback chain mirrors spec-ade: title > name > description > content > subject > text
+            QString label = o.value(QStringLiteral("title")).toString();
+            if (label.isEmpty()) label = o.value(QStringLiteral("name")).toString();
+            if (label.isEmpty()) label = o.value(QStringLiteral("description")).toString();
+            if (label.isEmpty()) label = o.value(QStringLiteral("content")).toString();
+            if (label.isEmpty()) label = o.value(QStringLiteral("subject")).toString();
+            if (label.isEmpty()) label = o.value(QStringLiteral("text")).toString();
+            e.text = label;
             e.status = o.value(QStringLiteral("status")).toString();
             plan.append(e);
         }

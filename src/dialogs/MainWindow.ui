@@ -350,6 +350,7 @@
       <string>Tasks</string>
      </property>
      <addaction name="actionCreateTask"/>
+     <addaction name="separator"/>
     </widget>
     <addaction name="actionOpenTerminalInWorkspace"/>
     <addaction name="actionOpenTerminalInFolder"/>

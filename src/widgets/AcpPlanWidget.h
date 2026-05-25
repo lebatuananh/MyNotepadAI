@@ -24,6 +24,8 @@
 
 #include "AcpProtocol.h"
 
+class QLabel;
+class QPushButton;
 class QVBoxLayout;
 
 class AcpPlanWidget : public QFrame
@@ -34,11 +36,21 @@ public:
     explicit AcpPlanWidget(QWidget *parent = nullptr);
 
     void setEntries(const QList<AcpProtocol::AcpPlanEntry> &entries);
+    void setAgentIdle(bool idle);
+
+signals:
+    void resumeRequested(const QString &prompt);
 
 private:
     void clearRows();
+    void updateBadge();
+    void updateResumeButton();
 
     QVBoxLayout *m_layout = nullptr;
+    QLabel *m_badge = nullptr;
+    QPushButton *m_resumeBtn = nullptr;
+    QList<AcpProtocol::AcpPlanEntry> m_entries;
+    bool m_agentIdle = false;
 };
 
 #endif // ACP_PLAN_WIDGET_H

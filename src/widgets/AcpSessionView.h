@@ -113,6 +113,7 @@ private slots:
     void onThoughtChunkAppended(int idx, const QString &chunk);
     void onToolCallAddedOrUpdated(const QString &toolCallId);
     void onPlanUpdated();
+    void onPlanResumeRequested(const QString &prompt);
     void onUsageChanged();
     void onMetadataChanged();
     void onCurrentModeChanged(const QString &modeId);

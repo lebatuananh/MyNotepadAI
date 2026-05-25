@@ -48,6 +48,7 @@ class Converter;
 class DefaultDirectoryManager;
 class TabsQuickActionsBar;
 class TerminalManager;
+class AiAgentDock;
 class FolderAsWorkspaceDock;
 struct GitStatusEntry;
 struct WorkspaceStateSnapshot;
@@ -180,7 +181,8 @@ private:
     bool checkFileForModification(ScintillaNext *editor);
     void showSaveErrorMessage(ScintillaNext *editor, QFileDevice::FileError error);
     void showEditorZoomLevelIndicator();
-    void attachAiAgentDock(class AiAgentDock *dock);
+    void attachAiAgentDock(AiAgentDock *dock);
+    AiAgentDock *activeAiDock() const;
     void registerWorkspaceDock(FolderAsWorkspaceDock *dock);
     void openFolderAsWorkspacePath(const QString &dir, bool showGitTab = false);
     void wireWorkspaceGitSignals(FolderAsWorkspaceDock *dock);
@@ -229,6 +231,7 @@ private:
     FileWatcher *fileWatcher = Q_NULLPTR;
 
     QPointer<FolderAsWorkspaceDock> m_activeWorkspace;
+    QPointer<AiAgentDock> m_activeAiDock;
 
     // On-disk memo of per-workspace UI state keyed by cleanPath rootPath.
     // Loaded once in restoreOpenWorkspaces; consulted in openFolderAsWorkspacePath.

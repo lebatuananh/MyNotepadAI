@@ -36,6 +36,11 @@
 #include <QPushButton>
 #include <QTimer>
 #include <QInputDialog>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QDir>
+#include <QFormLayout>
+#include <QLineEdit>
 #include <QPrintPreviewDialog>
 #include <QPrinter>
 #include <QDirIterator>
@@ -73,6 +78,7 @@
 
 #include "TerminalManager.h"
 #include "TerminalCwdResolver.h"
+#include "TerminalTaskRegistry.h"
 
 #include "FindReplaceDialog.h"
 #include "MacroRunDialog.h"
@@ -1210,20 +1216,79 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
     });
 
     connect(ui->menuTasks, &QMenu::aboutToShow, this, [this]() {
-        ui->actionCreateTask->setEnabled(TerminalCwdResolver::canOpenInWorkspace(currentWorkspaceRoot()));
+        const QString workspaceRoot = TerminalTaskRegistry::normalizeWorkspacePath(currentWorkspaceRoot());
+        const bool hasWorkspace = TerminalCwdResolver::canOpenInWorkspace(workspaceRoot);
+
+        ui->actionCreateTask->setEnabled(hasWorkspace);
+
+        // Remove previously-built task actions (everything after the separator).
+        // The separator is the second action; task actions follow it.
+        const QList<QAction *> actions = ui->menuTasks->actions();
+        // Find the separator and remove everything after it.
+        bool pastSeparator = false;
+        for (QAction *a : actions) {
+            if (pastSeparator) {
+                ui->menuTasks->removeAction(a);
+                delete a;
+            } else if (a->isSeparator()) {
+                pastSeparator = true;
+            }
+        }
+
+        if (!hasWorkspace)
+            return;
+
+        const QList<TerminalTask> tasks = terminalManager->tasksForWorkspace(workspaceRoot);
+        if (tasks.isEmpty())
+            return;
+
+        for (const TerminalTask &task : tasks) {
+            QAction *action = ui->menuTasks->addAction(task.name);
+            const QString cmd = task.command;
+            const QString name = task.name;
+            connect(action, &QAction::triggered, this, [this, workspaceRoot, cmd, name]() {
+                const QString cwd = TerminalCwdResolver::resolveWorkspace(workspaceRoot);
+                if (cwd.isEmpty()) return;
+                terminalManager->openTask(cwd, cmd, name);
+            });
+        }
     });
 
     connect(ui->actionCreateTask, &QAction::triggered, this, [this]() {
-        const QString cwd = TerminalCwdResolver::resolveWorkspace(currentWorkspaceRoot());
+        const QString workspaceRoot = TerminalTaskRegistry::normalizeWorkspacePath(currentWorkspaceRoot());
+        const QString cwd = TerminalCwdResolver::resolveWorkspace(workspaceRoot);
         if (cwd.isEmpty()) return;
 
-        bool ok = false;
-        const QString command = QInputDialog::getText(this, tr("Create Task"), tr("Command:"), QLineEdit::Normal, QString(), &ok);
-        if (!ok || command.trimmed().isEmpty()) return;
+        QDialog dlg(this);
+        dlg.setWindowTitle(tr("Create Task"));
+        auto *layout = new QFormLayout(&dlg);
+        auto *nameEdit    = new QLineEdit(&dlg);
+        auto *commandEdit = new QLineEdit(&dlg);
+        auto *buttons = new QDialogButtonBox(
+            QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+        layout->addRow(tr("Name:"),    nameEdit);
+        layout->addRow(tr("Command:"), commandEdit);
+        layout->addRow(buttons);
+        connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
 
-        const QString name = QInputDialog::getText(this, tr("Create Task"), tr("Name (optional):"), QLineEdit::Normal, QString());
+        if (dlg.exec() != QDialog::Accepted)
+            return;
+        const QString command = commandEdit->text().trimmed();
+        if (command.isEmpty()) return;
+        const QString name = nameEdit->text().trimmed();
+        const QString effectiveName = name.isEmpty() ? command : name;
 
-        terminalManager->openTask(cwd, command.trimmed(), name.trimmed());
+        const QList<TerminalTask> existing = terminalManager->tasksForWorkspace(workspaceRoot);
+        for (const TerminalTask &t : existing) {
+            if (t.name == effectiveName) {
+                QMessageBox::warning(this, tr("Create Task"),
+                    tr("A task named \"%1\" already exists in this workspace.").arg(effectiveName));
+                return;
+            }
+        }
+
+        terminalManager->addTask(workspaceRoot, {effectiveName, command});
     });
 
     connect(ui->menuAi, &QMenu::aboutToShow, this, [this]() {
@@ -1938,21 +2003,12 @@ void MainWindow::registerWorkspaceDock(FolderAsWorkspaceDock *dock)
         menu->addSeparator();
 
         // --- Send to AI ---
-        const auto docks = findChildren<AiAgentDock *>();
-        if (!docks.isEmpty()) {
-            AiAgentDock *targetDock = nullptr;
-            for (auto *d : docks) {
-                if (d->isVisible()) {
-                    targetDock = d;
-                    break;
-                }
-            }
-            if (!targetDock) {
-                targetDock = docks.first();
-            }
-
+        AiAgentDock *targetDock = activeAiDock();
+        if (targetDock) {
             auto *sendToAi = new QAction(tr("Send to AI"), menu);
-            connect(sendToAi, &QAction::triggered, this, [this, absPath, isDir, targetDock, wsRoot]() {
+            connect(sendToAi, &QAction::triggered, this, [this, absPath, isDir, wsRoot]() {
+                AiAgentDock *dock = activeAiDock();
+                if (!dock) return;
                 QString relPath = absPath;
                 if (!wsRoot.isEmpty() && relPath.startsWith(wsRoot)) {
                     relPath = relPath.mid(wsRoot.length());
@@ -1965,9 +2021,9 @@ void MainWindow::registerWorkspaceDock(FolderAsWorkspaceDock *dock)
                 } else {
                     text = QStringLiteral("@%1 ").arg(relPath);
                 }
-                targetDock->insertTextToInput(text);
-                targetDock->setVisible(true);
-                targetDock->raise();
+                dock->insertTextToInput(text);
+                dock->setVisible(true);
+                dock->raise();
             });
             menu->addAction(sendToAi);
         }
@@ -2027,26 +2083,17 @@ void MainWindow::wireWorkspaceGitSignals(FolderAsWorkspaceDock *dock)
 
     connect(dock, &FolderAsWorkspaceDock::gitChangesContextMenuRequested, this,
             [this](QMenu *menu, const QString &relPath) {
-        const auto docks = findChildren<AiAgentDock *>();
-        if (docks.isEmpty()) return;
-
-        AiAgentDock *targetDock = nullptr;
-        for (auto *d : docks) {
-            if (d->isVisible()) {
-                targetDock = d;
-                break;
-            }
-        }
-        if (!targetDock) {
-            targetDock = docks.first();
-        }
+        AiAgentDock *targetDock = activeAiDock();
+        if (!targetDock) return;
 
         auto *sendToAi = new QAction(tr("Send to AI"), menu);
-        connect(sendToAi, &QAction::triggered, this, [this, relPath, targetDock]() {
+        connect(sendToAi, &QAction::triggered, this, [this, relPath]() {
+            AiAgentDock *dock = activeAiDock();
+            if (!dock) return;
             const QString text = QStringLiteral("@%1 ").arg(relPath);
-            targetDock->insertTextToInput(text);
-            targetDock->setVisible(true);
-            targetDock->raise();
+            dock->insertTextToInput(text);
+            dock->setVisible(true);
+            dock->raise();
         });
         menu->addAction(sendToAi);
     });
@@ -2985,10 +3032,16 @@ void MainWindow::addEditor(ScintillaNext *editor)
     PROFILE_SCOPE("MainWindow::addEditor");
     qInfo(Q_FUNC_INFO);
 
-    {
+    // Defer language detection to the next event-loop tick so the editor
+    // tab appears instantly with no highlighting, then styling kicks in
+    // one frame later (imperceptible). SC_IDLESTYLING_TOVISIBLE ensures
+    // only visible content is styled on the deferred pass.
+    QTimer::singleShot(0, editor, [this, editor]() {
+        // Skip if a language was already assigned (e.g. by session restore)
+        if (!editor->languageName.isEmpty()) return;
         PROFILE_SCOPE("MainWindow::addEditor.detectLanguage");
         detectLanguage(editor);
-    }
+    });
 
     // Defer file-watcher registration to the next event-loop tick.
     // canonicalFilePath() + QFileSystemWatcher::addPath are syscalls that
@@ -3060,20 +3113,13 @@ void MainWindow::addEditor(ScintillaNext *editor)
         const bool hasSelection = editor->selectionStart() != editor->selectionEnd();
         AiAgentDock *targetDock = nullptr;
         if (hasSelection && editor->isFile() && !app->getEditorManager()->isDiffView(editor)) {
-            const auto docks = findChildren<AiAgentDock *>();
-            for (auto *d : docks) {
-                if (d->isVisible()) {
-                    targetDock = d;
-                    break;
-                }
-            }
-            if (!targetDock && !docks.isEmpty()) {
-                targetDock = docks.first();
-            }
+            targetDock = activeAiDock();
         }
         if (targetDock) {
             auto *sendToAi = new QAction(tr("Send to AI"), menu);
-            connect(sendToAi, &QAction::triggered, this, [this, editor, targetDock]() {
+            connect(sendToAi, &QAction::triggered, this, [this, editor]() {
+                AiAgentDock *dock = activeAiDock();
+                if (!dock) return;
                 const sptr_t selStart = editor->selectionStart();
                 const sptr_t selEnd = editor->selectionEnd();
                 const int lineStart = static_cast<int>(editor->lineFromPosition(selStart)) + 1;
@@ -3099,9 +3145,9 @@ void MainWindow::addEditor(ScintillaNext *editor)
                 if (!mention.isEmpty()) {
                     text = mention + QStringLiteral(" ");
                 }
-                targetDock->insertTextToInput(text);
-                targetDock->setVisible(true);
-                targetDock->raise();
+                dock->insertTextToInput(text);
+                dock->setVisible(true);
+                dock->raise();
             });
             menu->insertAction(menu->actions().isEmpty() ? nullptr : menu->actions().first(), sendToAi);
             menu->insertSeparator(menu->actions().at(1));
@@ -3311,12 +3357,27 @@ void MainWindow::attachAiAgentDock(AiAgentDock *dock)
         }
     }
 
+    connect(dock, &QDockWidget::visibilityChanged, this, [this, dock](bool visible) {
+        if (visible) {
+            m_activeAiDock = dock;
+        }
+    });
+
     addDockWidget(AiAgentDock::defaultArea(), dock);
     if (existing) {
         tabifyDockWidget(existing, dock);
     }
     dock->setVisible(true);
     dock->raise();
+    m_activeAiDock = dock;
+}
+
+AiAgentDock *MainWindow::activeAiDock() const
+{
+    if (m_activeAiDock)
+        return m_activeAiDock.data();
+    const auto docks = findChildren<AiAgentDock *>();
+    return docks.isEmpty() ? nullptr : docks.first();
 }
 
 void MainWindow::tabBarRightClicked(ScintillaNext *editor)
@@ -3360,21 +3421,14 @@ void MainWindow::tabBarRightClicked(ScintillaNext *editor)
     // "Send to AI" — when an AI dock exists and the editor has a file path.
     AiAgentDock *targetDock = nullptr;
     if (editor->isFile()) {
-        const auto docks = findChildren<AiAgentDock *>();
-        for (auto *d : docks) {
-            if (d->isVisible()) {
-                targetDock = d;
-                break;
-            }
-        }
-        if (!targetDock && !docks.isEmpty()) {
-            targetDock = docks.first();
-        }
+        targetDock = activeAiDock();
     }
     if (targetDock) {
         menu->addSeparator();
         auto *sendToAi = new QAction(tr("Send to AI"), menu);
-        connect(sendToAi, &QAction::triggered, this, [this, editor, targetDock]() {
+        connect(sendToAi, &QAction::triggered, this, [this, editor]() {
+            AiAgentDock *dock = activeAiDock();
+            if (!dock) return;
             QString filePath = editor->getFilePath();
             const QString wsRoot = currentWorkspaceRoot();
             if (!wsRoot.isEmpty() && filePath.startsWith(wsRoot)) {
@@ -3383,9 +3437,9 @@ void MainWindow::tabBarRightClicked(ScintillaNext *editor)
                     filePath = filePath.mid(1);
             }
             const QString text = QStringLiteral("@%1 ").arg(filePath);
-            targetDock->insertTextToInput(text);
-            targetDock->setVisible(true);
-            targetDock->raise();
+            dock->insertTextToInput(text);
+            dock->setVisible(true);
+            dock->raise();
         });
         menu->addAction(sendToAi);
     }

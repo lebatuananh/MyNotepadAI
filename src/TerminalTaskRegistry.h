@@ -16,45 +16,35 @@
  * along with Notepad Next.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef TERMINALMANAGER_H
-#define TERMINALMANAGER_H
+#pragma once
 
 #include <QList>
-#include <QObject>
-#include <QPointer>
 #include <QString>
 
-#include "TerminalTaskRegistry.h"
+class ApplicationSettings;
 
-class NotepadNextApplication;
-class MainWindow;
-class TerminalDock;
-
-class TerminalManager : public QObject
+struct TerminalTask
 {
-    Q_OBJECT
+    QString name;
+    QString command;
+};
 
+// Pure task-persistence layer. No UI, no PTY, no MainWindow dependency.
+// Stores tasks per workspace path in ApplicationSettings under
+// Terminal/WorkspaceTasks as a JSON object: { "<normalizedPath>": [...] }.
+class TerminalTaskRegistry
+{
 public:
-    TerminalManager(NotepadNextApplication *app, MainWindow *mainWindow);
-    ~TerminalManager() override;
+    explicit TerminalTaskRegistry(ApplicationSettings *settings);
 
-    QString resolveShellCommand() const;
+    // Normalize a workspace path to a stable JSON key:
+    //   - QDir::cleanPath: separator → '/', strip trailing slash
+    //   - toLower on Windows: D:/foo and d:/foo collide into the same entry
+    static QString normalizeWorkspacePath(const QString &path);
 
-    // Per-workspace task registry. workspacePath must be QDir::cleanPath'd.
     QList<TerminalTask> tasksForWorkspace(const QString &workspacePath) const;
     void addTask(const QString &workspacePath, const TerminalTask &task);
 
-public slots:
-    void openTerminal(const QString &cwd);
-    void openTask(const QString &cwd, const QString &command, const QString &name);
-    void applyTheme();
-    void applyFont();
-    void shutdown();
-
 private:
-    NotepadNextApplication *m_app;
-    MainWindow *m_mainWindow;
-    QList<QPointer<TerminalDock>> m_docks;
+    ApplicationSettings *m_settings;
 };
-
-#endif

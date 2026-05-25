@@ -347,6 +347,8 @@ qt_add_executable(NotepadAI
 	TerminalCwdResolver.cpp
 	TerminalManager.h
 	TerminalManager.cpp
+	TerminalTaskRegistry.h
+	TerminalTaskRegistry.cpp
 	widgets/TerminalColorScheme.h
 	widgets/TerminalColorScheme.cpp
 	widgets/ScrollbackBuffer.h

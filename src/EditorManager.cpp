@@ -17,6 +17,7 @@
  */
 
 #include <QApplication>
+#include <QPointer>
 #include <QTimer>
 
 #include "ApplicationSettings.h"
@@ -320,69 +321,80 @@ void EditorManager::setupEditor(ScintillaNext *editor)
         editor->setEOLMode(detectedEOLMode);
     }
 
-    // Decorators
+    // Decorators — critical path (must exist before first paint)
     PROFILE_SCOPE("EditorManager::setupEditor.decorators");
-    SmartHighlighter *s = new SmartHighlighter(editor);
-    s->setEnabled(true);
-
-    HighlightedScrollBarDecorator *h = new HighlightedScrollBarDecorator(editor);
-    h->setEnabled(true);
-
-    BraceMatch *b = new BraceMatch(editor);
-    b->setEnabled(true);
 
     LineNumbers *l = new LineNumbers(editor);
     l->setEnabled(settings->showLineNumbers());
 
-    SurroundSelection *ss = new SurroundSelection(editor);
-    ss->setEnabled(true);
-
-    BetterMultiSelection *bms = new BetterMultiSelection(editor);
-    bms->setEnabled(true);
-
-    AutoIndentation *ai = new AutoIndentation(editor);
-    ai->setEnabled(true);
-
-    AutoCompletion *ac = new AutoCompletion(editor);
-    ac->setEnabled(true);
-
-    URLFinder *uf = new URLFinder(editor);
-    uf->setEnabled(settings->urlHighlighting());
-
-    JustfileRecipeHighlighter *jrh = new JustfileRecipeHighlighter(editor);
-    jrh->setEnabled(true);
+    HighlightedScrollBarDecorator *h = new HighlightedScrollBarDecorator(editor);
+    h->setEnabled(true);
 
     BookMarkDecorator *bm = new BookMarkDecorator(editor);
     bm->setEnabled(true);
 
-    GitGutterDecorator *gg = new GitGutterDecorator(editor);
-    gg->setEnabled(settings->gitGutterEnabled());
+    // Defer non-essential decorators to the next event-loop tick so the
+    // editor tab appears instantly. These decorators enhance editing but
+    // are not needed for the initial paint.
+    QPointer<ScintillaNext> guard(editor);
+    const bool urlHighlighting = settings->urlHighlighting();
+    const bool gitGutterEnabled = settings->gitGutterEnabled();
+    const bool inlineBlameEnabled = settings->inlineBlameEnabled();
+    const bool minimapEnabled = settings->minimapEnabled();
+    const bool isFile = editor->isFile();
 
-    InlineBlameDecorator *blame = new InlineBlameDecorator(editor);
-    blame->setEnabled(settings->inlineBlameEnabled());
-    connect(blame, &InlineBlameDecorator::commitClicked,
-            this, &EditorManager::blameCommitClicked);
+    QTimer::singleShot(0, editor, [this, guard, urlHighlighting, gitGutterEnabled,
+                                    inlineBlameEnabled, minimapEnabled, isFile]() {
+        if (!guard) return;
+        ScintillaNext *editor = guard.data();
 
-    // Defer git decorator refreshes to the next event-loop tick so the
-    // editor tab appears instantly. The refresh spawns QProcess (git
-    // rev-parse) which costs ~50-100ms on Windows per CreateProcess call;
-    // deferring keeps that off the file-open critical path.
-    if (editor->isFile()) {
-        QTimer::singleShot(0, editor, [gg, blame, gitGutterEnabled = settings->gitGutterEnabled(),
-                                        inlineBlameEnabled = settings->inlineBlameEnabled()]() {
-            if (gitGutterEnabled) gg->refresh();
-            if (inlineBlameEnabled) blame->refresh();
-        });
-    }
+        SmartHighlighter *s = new SmartHighlighter(editor);
+        s->setEnabled(true);
 
-    if (settings->minimapEnabled()) {
-        // EditorMinimap parents itself to `editor` and self-positions via an
-        // event filter. Construction with parent==nullptr triggers the
-        // self-install path; toggle off via deleteLater().
-        new EditorMinimap(editor);
-    }
+        BraceMatch *b = new BraceMatch(editor);
+        b->setEnabled(true);
 
-    new HTMLAutoCompleteDecorator(editor);
+        SurroundSelection *ss = new SurroundSelection(editor);
+        ss->setEnabled(true);
+
+        BetterMultiSelection *bms = new BetterMultiSelection(editor);
+        bms->setEnabled(true);
+
+        AutoIndentation *ai = new AutoIndentation(editor);
+        ai->setEnabled(true);
+
+        AutoCompletion *ac = new AutoCompletion(editor);
+        ac->setEnabled(true);
+
+        URLFinder *uf = new URLFinder(editor);
+        uf->setEnabled(urlHighlighting);
+
+        JustfileRecipeHighlighter *jrh = new JustfileRecipeHighlighter(editor);
+        jrh->setEnabled(true);
+
+        GitGutterDecorator *gg = new GitGutterDecorator(editor);
+        gg->setEnabled(gitGutterEnabled);
+
+        InlineBlameDecorator *blame = new InlineBlameDecorator(editor);
+        blame->setEnabled(inlineBlameEnabled);
+        connect(blame, &InlineBlameDecorator::commitClicked,
+                this, &EditorManager::blameCommitClicked);
+
+        // Defer git decorator refreshes further so the deferred batch
+        // itself doesn't block on QProcess spawns.
+        if (isFile) {
+            QTimer::singleShot(0, editor, [gg, blame, gitGutterEnabled, inlineBlameEnabled]() {
+                if (gitGutterEnabled) gg->refresh();
+                if (inlineBlameEnabled) blame->refresh();
+            });
+        }
+
+        if (minimapEnabled) {
+            new EditorMinimap(editor);
+        }
+
+        new HTMLAutoCompleteDecorator(editor);
+    });
 }
 
 void EditorManager::applyTheme(bool dark)
@@ -566,48 +578,38 @@ int EditorManager::detectEOLMode(ScintillaNext *editor) const
 {
     qInfo(Q_FUNC_INFO);
 
+    const int MAX_BYTES_TO_CHECK = 10 * 1024;
     const int MIN_LINE_THRESHOLD = 3;
-    const int MAX_BYTES_TO_CHECK = 10*1024;
 
-    int index = 0;
-    int lf = 0;
-    int cr = 0;
-    int crlf = 0;
-    int chPrev = ' ';
-    int chNext = editor->charAt(index);
+    const int len = qMin(MAX_BYTES_TO_CHECK, static_cast<int>(editor->length()));
+    if (len == 0) return -1;
 
-    for (int i = 0; i < qMin(MAX_BYTES_TO_CHECK, (int) editor->length()); ++i) {
-        int ch = chNext;
-        chNext = editor->charAt(i + 1);
+    const QByteArray buf = editor->get_text_range(0, len);
+    const char *data = buf.constData();
+    const int n = buf.size();
 
-        if (ch == '\r') {
-            if (chNext == '\n') crlf++;
-            else cr++;
+    int lf = 0, cr = 0, crlf = 0;
+
+    for (int i = 0; i < n; ++i) {
+        if (data[i] == '\r') {
+            if (i + 1 < n && data[i + 1] == '\n') {
+                ++crlf;
+                ++i; // skip the \n
+            } else {
+                ++cr;
+            }
+        } else if (data[i] == '\n') {
+            ++lf;
         }
-        else if (ch == '\n') {
-            if (chPrev != '\r') lf++;
-        }
 
-        chPrev = ch;
-
-        // If any meet some minimum threshold then just declare victory
-        if (crlf == MIN_LINE_THRESHOLD) return SC_EOL_CRLF;
-        else if (cr == MIN_LINE_THRESHOLD) return SC_EOL_CR;
-        else if (lf == MIN_LINE_THRESHOLD) return SC_EOL_LF;
+        if (crlf >= MIN_LINE_THRESHOLD) return SC_EOL_CRLF;
+        if (cr >= MIN_LINE_THRESHOLD) return SC_EOL_CR;
+        if (lf >= MIN_LINE_THRESHOLD) return SC_EOL_LF;
     }
 
-    // There are either no lines or only a few, so make a best effort determination
+    if (crlf > cr && crlf > lf) return SC_EOL_CRLF;
+    if (cr > lf) return SC_EOL_CR;
+    if (lf > 0) return SC_EOL_LF;
 
-    if (crlf > cr && crlf > lf) {
-        return SC_EOL_CRLF;
-    }
-    else if (cr > lf) {
-        return SC_EOL_CR;
-    }
-    else if (lf > cr) {
-        return SC_EOL_LF;
-    }
-    else {
-        return -1;
-    }
+    return -1;
 }

@@ -133,6 +133,14 @@ public:
     DEFINE_SETTING(ShellCommand, shellCommand, QString)
     DEFINE_SETTING(TerminalFont, terminalFont, QString)
 
+    // Per-workspace task registry. Stored as a single JSON object:
+    // { "<cleanPath>": [{"name":"...","command":"..."},...], ... }
+    // Never deleted — tasks survive workspace close/removal.
+public:
+    QString workspaceTasksJson() const;
+public slots:
+    void setWorkspaceTasksJson(const QString &json);
+
     DEFINE_SETTING(SyntaxHighlightDiffEnabled, syntaxHighlightDiffEnabled, bool)
 
     // Files-tab git decoration master toggle. When false, the workspace

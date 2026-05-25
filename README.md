@@ -2,7 +2,7 @@
 
 A fast, cross-platform code editor with built-in AI agents, Git integration, and an embedded terminal. Built on [Notepad Next](https://github.com/dail8859/NotepadNext) (a Notepad++ reimplementation in Qt/C++).
 
-![screenshot](/doc/screenshot.png)
+![screenshot](/screenshot.png)
 
 ## Features
 

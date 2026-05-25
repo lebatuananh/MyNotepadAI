@@ -538,8 +538,26 @@ bool ScintillaNext::moveToTrash()
 
 void ScintillaNext::toggleCommentSelection()
 {
-    ScintillaCommenter sc(this);
-    sc.toggleSelection();
+    if (languageSingleLineComment.isEmpty())
+        return;
+
+    const int sel = mainSelection();
+    const bool hasSelection = selectionNStart(sel) != selectionNEnd(sel);
+
+    {
+        ScintillaCommenter sc(this);
+        sc.toggleSelection();
+    }
+
+    if (!hasSelection) {
+        const auto col = column(selectionNCaret(mainSelection()));
+        const int caretLine = lineFromPosition(selectionNCaret(mainSelection()));
+        const int nextLine = caretLine + 1;
+        if (nextLine < lineCount()) {
+            const auto pos = findColumn(nextLine, col);
+            setSelection(pos, pos);
+        }
+    }
 }
 
 void ScintillaNext::commentLineSelection()

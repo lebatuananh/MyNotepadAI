@@ -60,6 +60,7 @@ signals:
     void titleChanged(const QString &title);
     void processExited(int exitCode);
     void spawnFailed(const QString &message);
+    void firstOutputReceived();
 
 protected:
     bool event(QEvent *event) override;
@@ -139,6 +140,7 @@ private:
     bool m_focusReporting = false;
     bool m_exited = false;
     int m_exitCode = 0;
+    bool m_firstOutputEmitted = false;
 
     QByteArray m_pendingInput;
     QTimer *m_batchTimer = nullptr;

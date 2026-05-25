@@ -434,6 +434,10 @@ void TerminalWidget::onPtyReadyRead()
     if (!m_pty || !m_vt) return;
     const QByteArray data = m_pty->readAll();
     if (data.isEmpty()) return;
+    if (!m_firstOutputEmitted) {
+        m_firstOutputEmitted = true;
+        emit firstOutputReceived();
+    }
     m_pendingInput.append(data);
     if (!m_batchTimer->isActive()) {
         m_batchTimer->start();

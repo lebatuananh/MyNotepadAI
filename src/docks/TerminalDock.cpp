@@ -75,9 +75,11 @@ void TerminalDock::init(const QString &shell, const QString &cwd)
     m_terminal->start(shell, cwd);
 
     if (!m_taskCommand.isEmpty()) {
-        QByteArray cmd = m_taskCommand.toUtf8();
-        cmd.append('\n');
-        m_terminal->writeToPty(cmd);
+        connect(m_terminal, &TerminalWidget::firstOutputReceived, this, [this]() {
+            QByteArray cmd = m_taskCommand.toUtf8();
+            cmd.append('\r');
+            m_terminal->writeToPty(cmd);
+        }, Qt::SingleShotConnection);
     }
 }
 
@@ -119,9 +121,11 @@ void TerminalDock::restartTask()
 
     m_terminal->start(m_shell, m_initialCwd);
 
-    QByteArray cmd = m_taskCommand.toUtf8();
-    cmd.append('\n');
-    m_terminal->writeToPty(cmd);
+    connect(m_terminal, &TerminalWidget::firstOutputReceived, this, [this]() {
+        QByteArray cmd = m_taskCommand.toUtf8();
+        cmd.append('\r');
+        m_terminal->writeToPty(cmd);
+    }, Qt::SingleShotConnection);
 
     m_terminal->setFocus();
 }

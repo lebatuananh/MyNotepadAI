@@ -33,6 +33,7 @@
 #include <atomic>
 #include <csignal>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -72,10 +73,9 @@ constexpr std::size_t kRotateBytes    = 10 * 1024 * 1024;
 // space is below this — otherwise appendStr silently truncates and frames are
 // dropped.
 constexpr std::size_t kFrameReserve   = 1024;
-// If SymFromAddr's reported offset from the matched symbol exceeds this, the
-// "symbol" is almost certainly the nearest export of a PDB-less module, not
-// the real function. Suppress the misleading name in that case.
+#ifdef _WIN32
 constexpr DWORD64     kSymDispMax     = 256 * 1024;
+#endif
 
 #ifndef _WIN32
 constexpr std::size_t kAltStackSize = 1 << 16;      // 64KB

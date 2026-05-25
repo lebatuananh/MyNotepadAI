@@ -179,6 +179,8 @@ public slots:
     DEFINE_SETTING(CommitMessageStreamIdleTimeoutSec, commitMessageStreamIdleTimeoutSec, int)
     DEFINE_SETTING(CommitMessageGenerateShortcut,   commitMessageGenerateShortcut,   QString)
 
+    DEFINE_SETTING(SyncWorkspaceOnAiSwitch, syncWorkspaceOnAiSwitch, bool)
+
     // AI / ACP agent settings. Stored under the "Ai/" group.
 public:
     QString defaultAiAgentId() const;

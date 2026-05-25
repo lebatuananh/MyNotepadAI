@@ -45,6 +45,10 @@ struct GitDiffPalette {
     QColor bgHunkHeader;
     QColor fgGutter;
 
+    // Canvas (editor background + default foreground for context/default lines).
+    QColor canvasBg;
+    QColor canvasFg;
+
     // Commit-view-only tokens (header block of a commit detail tab).
     // commitMetaFg = author / SHA / date muted label color.
     // commitBodyFg = commit message body color (slightly stronger than meta).

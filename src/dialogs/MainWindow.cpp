@@ -3333,6 +3333,19 @@ void MainWindow::attachAiAgentDock(AiAgentDock *dock)
     connect(dock, &QDockWidget::visibilityChanged, this, [this, dock](bool visible) {
         if (visible) {
             m_activeAiDock = dock;
+
+            if (isVisible() && app->getSettings()->syncWorkspaceOnAiSwitch()) {
+                const QString aiCwd = QDir::cleanPath(dock->workingDirectory());
+                if (!aiCwd.isEmpty()) {
+                    for (auto *ws : findChildren<FolderAsWorkspaceDock *>()) {
+                        if (QDir::cleanPath(ws->rootPath()) == aiCwd) {
+                            ws->setVisible(true);
+                            ws->raise();
+                            break;
+                        }
+                    }
+                }
+            }
         }
     });
 

@@ -151,6 +151,8 @@ CREATE_SETTING(Ai, CommitMessageStreamIdleTimeoutSec, commitMessageStreamIdleTim
 CREATE_SETTING(Ai, CommitMessageGenerateShortcut, commitMessageGenerateShortcut, QString, QStringLiteral("Ctrl+Alt+G"))
 // NOLINTEND(performance-unnecessary-value-param)
 
+CREATE_SETTING(Ai, SyncWorkspaceOnAiSwitch, syncWorkspaceOnAiSwitch, bool, true)
+
 // --- AI / ACP agent settings ---------------------------------------------------
 //
 // Declared by hand (not via CREATE_SETTING) because the auto-approve setter

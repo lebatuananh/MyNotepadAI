@@ -131,15 +131,15 @@ void GitDiffPainter::configureEditor(ScintillaNext *editor, const GitDiffPalette
     // Default style uses the editor's existing default background; ensure
     // foreground readable.
     const QColor defFg = pal.fgHunkHeader; // close to muted text, just placeholder
-    setStyleFB(editor, StyleDefault,    QColor(Qt::black),  QColor(Qt::white));
-    setStyleFB(editor, StyleFileHeader, pal.fgHunkHeader,   QColor(Qt::transparent));
-    setStyleFB(editor, StyleHunkHeader, pal.fgHunkHeader,   QColor(Qt::transparent));
-    setStyleFB(editor, StyleContext,    QColor(Qt::black),  QColor(Qt::white));
-    setStyleFB(editor, StyleAdded,      QColor(Qt::black),  QColor(Qt::transparent));
-    setStyleFB(editor, StyleDeleted,    QColor(Qt::black),  QColor(Qt::transparent));
-    setStyleFB(editor, StyleNoNewline,  pal.fgHunkHeader,   QColor(Qt::transparent));
-    setStyleFB(editor, StyleCommitMeta, pal.commitMetaFg,   QColor(Qt::transparent));
-    setStyleFB(editor, StyleCommitBody, pal.commitBodyFg,   QColor(Qt::transparent));
+    setStyleFB(editor, StyleDefault,    pal.canvasFg,       pal.canvasBg);
+    setStyleFB(editor, StyleFileHeader, pal.fgHunkHeader,   pal.canvasBg);
+    setStyleFB(editor, StyleHunkHeader, pal.fgHunkHeader,   pal.canvasBg);
+    setStyleFB(editor, StyleContext,    pal.canvasFg,       pal.canvasBg);
+    setStyleFB(editor, StyleAdded,      pal.canvasFg,       pal.canvasBg);
+    setStyleFB(editor, StyleDeleted,    pal.canvasFg,       pal.canvasBg);
+    setStyleFB(editor, StyleNoNewline,  pal.fgHunkHeader,   pal.canvasBg);
+    setStyleFB(editor, StyleCommitMeta, pal.commitMetaFg,   pal.canvasBg);
+    setStyleFB(editor, StyleCommitBody, pal.commitBodyFg,   pal.canvasBg);
 
     configureLineMarkers(editor, pal);
 

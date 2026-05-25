@@ -222,6 +222,7 @@ void GitHistoryView::onFetchStarted()
     m_loading = true;
     m_statusLabel->setText(tr("Loading…"));
     m_loadMoreBtn->setVisible(false);
+    emit busyChanged(true);
 }
 
 void GitHistoryView::onFetchFinished(bool reachedEnd, const QString &errorMessage)
@@ -234,6 +235,7 @@ void GitHistoryView::onFetchFinished(bool reachedEnd, const QString &errorMessag
         m_statusLabel->clear();
     }
     updateFooter();
+    emit busyChanged(false);
 }
 
 void GitHistoryView::onRowActivated(const QModelIndex &index)

@@ -66,6 +66,7 @@ public:
 signals:
     // User clicked a commit row — host opens a commit detail tab.
     void openCommitDetailRequested(const QByteArray &sha);
+    void busyChanged(bool busy);
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;

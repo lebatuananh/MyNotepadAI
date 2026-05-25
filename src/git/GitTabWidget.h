@@ -106,8 +106,9 @@ private:
     void clearError();
     void appendStatus(const QString &msg);
     QString settingsKey(const QString &subkey) const;
-    void handleBranchSelected(const QString &name);
-    void handleCreateBranch(const QString &name, const QString &base);
+    void handleCheckoutRequested(const QString &name);
+    void handleCreateBranch(const QString &name, const QString &base, bool setUpstream);
+    void handleSetUpstream(const QString &remoteBranch);
     void restoreSettingsForWorkspace();
 
     QString m_workspaceRoot;
@@ -148,8 +149,15 @@ private:
     QString m_pendingAiSubjectHint;
     bool m_aiAwaitingDiff = false;
     QTimer m_aiBusyTimer;
+    QTimer m_successTimer;
     QString m_aiBusyBase;
     int m_aiDotPhase = 0;
+    enum class BusyOwner : uint8_t { None, Git, History, Ai };
+    BusyOwner m_busyOwner = BusyOwner::None;
+
+    void setStatusBusy(BusyOwner owner, const QString &text);
+    void clearStatusBusy(BusyOwner owner);
+    void flashStatusSuccess(const QString &text);
 
     // Tab indices in segmented bar / stack.
     static constexpr int kTabChanges = 0;

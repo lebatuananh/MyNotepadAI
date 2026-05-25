@@ -91,6 +91,14 @@ GitTabWidget::GitTabWidget(const QString &workspaceRoot, QWidget *parent)
         m_statusLabel->setText(m_aiBusyBase + dots);
     });
 
+    // Success flash auto-hide.
+    m_successTimer.setSingleShot(true);
+    m_successTimer.setInterval(2000);
+    connect(&m_successTimer, &QTimer::timeout, this, [this]() {
+        m_statusLabel->clear();
+        m_statusLabel->hide();
+    });
+
     if (auto *app = qobject_cast<NotepadNextApplication *>(QCoreApplication::instance())) {
         if (auto *gen = app->getCommitMessageGenerator()) {
             connect(gen, &ai::CommitMessageGenerator::stateChanged, this,
@@ -181,6 +189,15 @@ void GitTabWidget::buildUi()
     topRow->addWidget(m_menuBtn);
     root->addLayout(topRow);
 
+    // Status label — immediately below the header row.
+    m_statusLabel = new QLabel(this);
+    m_statusLabel->setStyleSheet(QStringLiteral(
+        "color: palette(placeholder-text); font-size: 11px;"
+        "border: none; padding: 0px; background: transparent;"));
+    m_statusLabel->setWordWrap(true);
+    m_statusLabel->hide();
+    root->addWidget(m_statusLabel);
+
     // Segmented bar Changes / History.
     m_segmentedBar = new GitTabSegmentedBar(this);
     m_segmentedBar->setSegments({tr("Changes"), tr("History")});
@@ -243,13 +260,6 @@ void GitTabWidget::buildUi()
     m_stack->addWidget(m_changesPanel);   // index 0 — Changes
     m_stack->addWidget(m_historyView);    // index 1 — History
     root->addWidget(m_stack, 1);
-
-    // Status label (shared).
-    m_statusLabel = new QLabel(this);
-    m_statusLabel->setStyleSheet(QStringLiteral(
-        "color: palette(placeholder-text); font-size: 11px;"));
-    m_statusLabel->setWordWrap(true);
-    root->addWidget(m_statusLabel);
 
     // --- Connections ---
     connect(m_repoCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -314,6 +324,13 @@ void GitTabWidget::buildUi()
     // History view → forward openCommitDetailRequested up to the host.
     connect(m_historyView, &GitHistoryView::openCommitDetailRequested,
             this, &GitTabWidget::openCommitDetailRequested);
+    connect(m_historyView, &GitHistoryView::busyChanged, this, [this](bool busy) {
+        if (busy) {
+            setStatusBusy(BusyOwner::History, tr("Loading history"));
+        } else {
+            clearStatusBusy(BusyOwner::History);
+        }
+    });
 }
 
 void GitTabWidget::setWorkspaceRoot(const QString &root)
@@ -351,6 +368,7 @@ void GitTabWidget::rebuildController()
         m_changesPanel->composer()->clear();
     }
     m_statusLabel->clear();
+    m_statusLabel->hide();
     clearError();
 
     const bool hasWorkspace = !m_workspaceRoot.isEmpty()
@@ -574,19 +592,23 @@ void GitTabWidget::onBranchButtonClicked()
     if (!m_controller || m_controller->currentRepo().isEmpty()) return;
     if (!m_branchPicker) {
         m_branchPicker = new BranchPickerPopup(this);
-        connect(m_branchPicker, &BranchPickerPopup::branchSelected,
-                this, &GitTabWidget::handleBranchSelected);
+        connect(m_branchPicker, &BranchPickerPopup::checkoutRequested,
+                this, &GitTabWidget::handleCheckoutRequested);
         connect(m_branchPicker, &BranchPickerPopup::createBranchRequested,
                 this, &GitTabWidget::handleCreateBranch);
+        connect(m_branchPicker, &BranchPickerPopup::setUpstreamRequested,
+                this, &GitTabWidget::handleSetUpstream);
     }
     m_branchPicker->setBranches(m_controller->branchesLocal(),
                                 m_controller->branchesRemote(),
-                                m_controller->currentBranch());
+                                m_controller->currentBranch(),
+                                QStringLiteral("main"),
+                                m_controller->currentBranch().isEmpty());
     const QPoint pos = m_branchBtn->mapToGlobal(m_branchBtn->rect().bottomLeft());
     m_branchPicker->popupAt(pos);
 }
 
-void GitTabWidget::handleBranchSelected(const QString &name)
+void GitTabWidget::handleCheckoutRequested(const QString &name)
 {
     if (!m_controller) return;
     QString target = name;
@@ -623,14 +645,20 @@ void GitTabWidget::handleBranchSelected(const QString &name)
             return;
         }
     } else {
-        m_controller->switchBranch(target, GitController::BranchSwitchPolicy::Cancel);
+        m_controller->switchBranch(target, GitController::BranchSwitchPolicy::SwitchAnyway);
     }
 }
 
-void GitTabWidget::handleCreateBranch(const QString &name, const QString &base)
+void GitTabWidget::handleCreateBranch(const QString &name, const QString &base, bool setUpstream)
 {
     if (!m_controller) return;
-    m_controller->createBranch(name, base, /*checkout=*/true);
+    m_controller->createBranch(name, base, /*checkout=*/true, setUpstream);
+}
+
+void GitTabWidget::handleSetUpstream(const QString &remoteBranch)
+{
+    if (!m_controller) return;
+    m_controller->setUpstream(remoteBranch);
 }
 
 void GitTabWidget::onMenuButtonClicked()
@@ -747,12 +775,21 @@ void GitTabWidget::onControllerState(GitController::State s)
     m_refreshBtn->setEnabled(!busy && m_controller);
     updateActionsEnabled();
 
-    switch (s) {
-    case GitController::State::Idle:        m_statusLabel->clear(); break;
-    case GitController::State::Discovering: appendStatus(tr("Discovering repositories…")); break;
-    case GitController::State::Refreshing:  appendStatus(tr("Refreshing…")); break;
-    case GitController::State::Running:     appendStatus(tr("Running…")); break;
-    case GitController::State::Error:       break;
+    if (busy) {
+        QString text;
+        if (s == GitController::State::Running && m_controller)
+            text = m_controller->runningOperationName();
+        if (text.isEmpty()) {
+            switch (s) {
+            case GitController::State::Discovering: text = tr("Discovering repositories"); break;
+            case GitController::State::Refreshing:  text = tr("Refreshing"); break;
+            case GitController::State::Running:     text = tr("Running"); break;
+            default: break;
+            }
+        }
+        setStatusBusy(BusyOwner::Git, text);
+    } else {
+        clearStatusBusy(BusyOwner::Git);
     }
 }
 
@@ -764,7 +801,7 @@ void GitTabWidget::onStatusUpdated()
 
 void GitTabWidget::onOpSucceeded(const QString &name)
 {
-    appendStatus(tr("%1 succeeded.").arg(name));
+    flashStatusSuccess(tr("%1 succeeded").arg(name));
     clearError();
 }
 
@@ -878,6 +915,48 @@ void GitTabWidget::clearError()
 void GitTabWidget::appendStatus(const QString &msg)
 {
     m_statusLabel->setText(msg);
+    m_statusLabel->setVisible(!msg.isEmpty());
+}
+
+void GitTabWidget::setStatusBusy(BusyOwner owner, const QString &text)
+{
+    m_successTimer.stop();
+    m_busyOwner = owner;
+    m_aiBusyBase = text;
+    m_aiDotPhase = 0;
+    m_statusLabel->setStyleSheet(QStringLiteral(
+        "color: #DAA520; font-size: 11px; font-weight: bold;"
+        "border: 1px solid #DAA520; border-radius: 4px;"
+        "padding: 2px 6px; background: rgba(218, 165, 32, 30);"));
+    m_statusLabel->setText(text);
+    m_statusLabel->show();
+    if (!m_aiBusyTimer.isActive()) m_aiBusyTimer.start();
+}
+
+void GitTabWidget::clearStatusBusy(BusyOwner owner)
+{
+    if (m_busyOwner != owner) return;
+    if (m_aiBusyTimer.isActive()) m_aiBusyTimer.stop();
+    m_aiBusyBase.clear();
+    m_busyOwner = BusyOwner::None;
+    m_statusLabel->setStyleSheet(QStringLiteral(
+        "color: palette(placeholder-text); font-size: 11px;"
+        "border: none; padding: 0px; background: transparent;"));
+    m_statusLabel->clear();
+    m_statusLabel->hide();
+}
+
+void GitTabWidget::flashStatusSuccess(const QString &text)
+{
+    if (m_busyOwner != BusyOwner::None) return;
+    if (m_aiBusyTimer.isActive()) m_aiBusyTimer.stop();
+    m_statusLabel->setStyleSheet(QStringLiteral(
+        "color: #2e7d32; font-size: 11px; font-weight: bold;"
+        "border: 1px solid #4caf50; border-radius: 4px;"
+        "padding: 2px 6px; background: rgba(76, 175, 80, 30);"));
+    m_statusLabel->setText(text);
+    m_statusLabel->show();
+    m_successTimer.start();
 }
 
 // --- AI commit-message generation ---
@@ -975,25 +1054,22 @@ void GitTabWidget::onGeneratorStateChanged(int state)
         composer->setGenerationActive(true);
         composer->setSubmitEnabled(false);
 
-        m_aiDotPhase = 0;
+        QString text;
         switch (s) {
-        case State::Authenticating: m_aiBusyBase = tr("AI: Connecting");  break;
-        case State::Streaming:      m_aiBusyBase = tr("AI: Generating");  break;
-        case State::Cancelling:     m_aiBusyBase = tr("AI: Cancelling");  break;
+        case State::Authenticating: text = tr("AI: Connecting");  break;
+        case State::Streaming:      text = tr("AI: Generating");  break;
+        case State::Cancelling:     text = tr("AI: Cancelling");  break;
         default: break;
         }
-        m_statusLabel->setText(m_aiBusyBase);
-        if (!m_aiBusyTimer.isActive()) m_aiBusyTimer.start();
+        setStatusBusy(BusyOwner::Ai, text);
     } else {
         btn->setIcon(QIcon());
         btn->setText(QString::fromUtf8("\xE2\x9C\xA8"));
         btn->setToolTip(tr("Generate commit message with AI"));
         composer->setGenerationActive(false);
         updateActionsEnabled();
-        if (m_aiBusyTimer.isActive()) m_aiBusyTimer.stop();
         if (isTarget || s == State::Idle) {
-            m_aiBusyBase.clear();
-            m_statusLabel->clear();
+            clearStatusBusy(BusyOwner::Ai);
         }
     }
 }

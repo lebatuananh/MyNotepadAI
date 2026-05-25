@@ -74,6 +74,7 @@ public:
     bool isEmptyRepo() const { return m_empty; }
     bool hasRemote() const { return !m_remoteList.isEmpty(); }
     bool hasConflicts() const;
+    QString runningOperationName() const { return m_busy ? m_current.humanName : QString(); }
 
 public slots:
     void initialize();
@@ -85,7 +86,9 @@ public slots:
     void unstageAll();
     void commit(const QString &message, bool amend, bool signoff, bool trackedOnly);
     void switchBranch(const QString &name, BranchSwitchPolicy policy);
-    void createBranch(const QString &name, const QString &base, bool checkout);
+    void createBranch(const QString &name, const QString &base, bool checkout, bool setUpstream = true);
+    void setUpstream(const QString &remoteBranch);
+    void configBranchTracking(const QString &branchName, const QString &remote);
     void fetch(const QString &remote = {});
     void pull(bool rebase);
     void push(const QString &remote = {}, bool setUpstream = false);
@@ -148,7 +151,7 @@ private:
         CatFileBlob,
         Stage, Unstage, StageAll, UnstageAll,
         Commit,
-        SwitchBranch, CreateBranch, Stash,
+        SwitchBranch, CreateBranch, SetUpstream, ConfigTracking, Stash,
         Fetch, Pull, Push, ForcePush
     };
     struct Op {

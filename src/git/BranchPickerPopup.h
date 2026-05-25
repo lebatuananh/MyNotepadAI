@@ -35,16 +35,16 @@ public:
     void setBranches(const QStringList &local,
                      const QStringList &remote,
                      const QString &current,
-                     const QString &defaultBranch = QStringLiteral("main"));
+                     const QString &defaultBranch = QStringLiteral("main"),
+                     bool detachedHead = false);
     void popupAt(const QPoint &globalPos);
 
     static QString sanitizeBranchName(const QString &raw);
 
 signals:
-    // For local existing branch: name = "feature/x"
-    // For remote: name = "origin/main" — caller will translate to local checkout.
-    void branchSelected(const QString &name);
-    void createBranchRequested(const QString &name, const QString &base);
+    void checkoutRequested(const QString &name);
+    void createBranchRequested(const QString &name, const QString &base, bool setUpstream);
+    void setUpstreamRequested(const QString &remoteBranch);
 
 protected:
     bool eventFilter(QObject *o, QEvent *e) override;
@@ -54,6 +54,9 @@ private slots:
     void onActivated(const QModelIndex &index);
 
 private:
+    void showItemMenu(const QModelIndex &index);
+    void showNewBranchDialog(const QString &base);
+
     QLineEdit *m_filter;
     QListView *m_list;
     QStandardItemModel *m_model;
@@ -61,6 +64,7 @@ private:
     QString m_default;
     QStringList m_local;
     QStringList m_remote;
+    bool m_detachedHead = false;
 };
 
 #endif // BRANCH_PICKER_POPUP_H

@@ -357,7 +357,7 @@ void GitController::switchBranch(const QString &name, BranchSwitchPolicy policy)
     enqueue(op);
 }
 
-void GitController::createBranch(const QString &name, const QString &base, bool checkout)
+void GitController::createBranch(const QString &name, const QString &base, bool checkout, bool setUpstream)
 {
     if (m_currentRepo.isEmpty() || name.isEmpty()) return;
     Op op;
@@ -369,7 +369,47 @@ void GitController::createBranch(const QString &name, const QString &base, bool 
     if (!base.isEmpty()) op.argv.append(base);
     op.timeoutMs = kTimeoutNormal;
     op.humanName = tr_("Creating branch");
+    op.meta.insert(QStringLiteral("newBranch"), name);
+    op.meta.insert(QStringLiteral("base"), base);
+    op.meta.insert(QStringLiteral("setUpstream"), setUpstream);
     enqueue(op);
+}
+
+void GitController::setUpstream(const QString &remoteBranch)
+{
+    if (m_currentRepo.isEmpty() || m_currentBranch.isEmpty()) return;
+    Op op;
+    op.kind = OpKind::SetUpstream;
+    op.argv = { QStringLiteral("-C"), m_currentRepo,
+                QStringLiteral("branch"), QStringLiteral("--set-upstream-to"),
+                remoteBranch };
+    op.timeoutMs = kTimeoutShort;
+    op.humanName = tr_("Setting upstream");
+    enqueue(op);
+}
+
+void GitController::configBranchTracking(const QString &branchName, const QString &remote)
+{
+    if (m_currentRepo.isEmpty() || branchName.isEmpty() || remote.isEmpty()) return;
+    Op op;
+    op.kind = OpKind::ConfigTracking;
+    op.argv = { QStringLiteral("-C"), m_currentRepo,
+                QStringLiteral("config"),
+                QStringLiteral("branch.%1.remote").arg(branchName),
+                remote };
+    op.timeoutMs = kTimeoutShort;
+    op.humanName = tr_("Configuring tracking");
+    enqueue(op);
+
+    Op op2;
+    op2.kind = OpKind::ConfigTracking;
+    op2.argv = { QStringLiteral("-C"), m_currentRepo,
+                 QStringLiteral("config"),
+                 QStringLiteral("branch.%1.merge").arg(branchName),
+                 QStringLiteral("refs/heads/%1").arg(branchName) };
+    op2.timeoutMs = kTimeoutShort;
+    op2.humanName = tr_("Configuring tracking");
+    enqueue(op2);
 }
 
 void GitController::fetch(const QString &remote)
@@ -801,7 +841,7 @@ void GitController::onRunFinished(int exit, const QByteArray &out, const QByteAr
         // Numstat ops are best-effort — a failure (e.g. unborn HEAD edge cases,
         // missing object) shouldn't tip the controller into Error or block UI.
         if (kind == OpKind::NumstatStaged || kind == OpKind::NumstatUnstaged
-            || kind == OpKind::SubmoduleNumstat) {
+            || kind == OpKind::SubmoduleNumstat || kind == OpKind::ConfigTracking) {
             popAndAdvance();
             return;
         }
@@ -884,12 +924,33 @@ void GitController::onRunFinished(int exit, const QByteArray &out, const QByteAr
         case OpKind::Commit:
         case OpKind::SwitchBranch:
         case OpKind::CreateBranch:
+        case OpKind::SetUpstream:
+        case OpKind::ConfigTracking:
         case OpKind::Stash:
         case OpKind::Fetch:
         case OpKind::Pull:
         case OpKind::Push:
         case OpKind::ForcePush:
             if (kind == OpKind::Commit) emit commitSucceeded();
+            if (kind == OpKind::CreateBranch) {
+                const QString newBranch = m_current.meta.value(QStringLiteral("newBranch")).toString();
+                const QString base = m_current.meta.value(QStringLiteral("base")).toString();
+                const bool wantUpstream = m_current.meta.value(QStringLiteral("setUpstream")).toBool();
+                if (!newBranch.isEmpty() && wantUpstream) {
+                    QString remote = QStringLiteral("origin");
+                    for (const auto &r : m_remoteList) {
+                        if (base.startsWith(r + QLatin1Char('/'))) {
+                            remote = r;
+                            break;
+                        }
+                    }
+                    if (!m_remoteList.isEmpty()) {
+                        if (!m_remoteList.contains(remote))
+                            remote = m_remoteList.first();
+                        configBranchTracking(newBranch, remote);
+                    }
+                }
+            }
             if (kind == OpKind::Commit || kind == OpKind::Pull) {
                 // Commit and Pull move the current branch tip (the ref file
                 // content changes, e.g. .git/refs/heads/main). GitWatcher only

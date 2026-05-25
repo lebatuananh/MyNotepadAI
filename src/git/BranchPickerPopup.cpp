@@ -18,10 +18,17 @@
 
 #include "BranchPickerPopup.h"
 
+#include <QCheckBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFormLayout>
 #include <QGuiApplication>
 #include <QKeyEvent>
+#include <QLabel>
 #include <QLineEdit>
 #include <QListView>
+#include <QMenu>
+#include <QPushButton>
 #include <QRegularExpression>
 #include <QScreen>
 #include <QStandardItem>
@@ -29,8 +36,8 @@
 #include <QVBoxLayout>
 
 namespace {
-constexpr int RoleKind = Qt::UserRole + 1;    // 0 = local, 1 = remote, 2 = create-current, 3 = create-default
-constexpr int RolePayload = Qt::UserRole + 2; // branch name or create base
+constexpr int RoleKind = Qt::UserRole + 1;    // 0 = local, 1 = remote
+constexpr int RolePayload = Qt::UserRole + 2; // branch name
 }
 
 QString BranchPickerPopup::sanitizeBranchName(const QString &raw)
@@ -72,16 +79,18 @@ BranchPickerPopup::BranchPickerPopup(QWidget *parent)
     setMinimumHeight(360);
 
     connect(m_filter, &QLineEdit::textChanged, this, &BranchPickerPopup::rebuild);
-    connect(m_list, &QAbstractItemView::activated, this, &BranchPickerPopup::onActivated);
+    connect(m_list, &QAbstractItemView::clicked, this, &BranchPickerPopup::onActivated);
 }
 
 void BranchPickerPopup::setBranches(const QStringList &local, const QStringList &remote,
-                                    const QString &current, const QString &defaultBranch)
+                                    const QString &current, const QString &defaultBranch,
+                                    bool detachedHead)
 {
     m_local = local;
     m_remote = remote;
     m_current = current;
     m_default = defaultBranch;
+    m_detachedHead = detachedHead;
     m_filter->clear();
     rebuild();
 }
@@ -112,6 +121,7 @@ void BranchPickerPopup::rebuild()
         auto f = it->font(); f.setBold(true); it->setFont(f);
         m_model->appendRow(it);
     };
+
     auto matches = [&](const QString &name) {
         return q.isEmpty() || name.toLower().contains(qLower);
     };
@@ -124,8 +134,8 @@ void BranchPickerPopup::rebuild()
         addHeader(tr("── Local ──"));
         for (const auto &b : locals) {
             QString display = b;
-            if (b == m_current) display = QStringLiteral("✓ ") + b;
-            else                display = QStringLiteral("   ") + b;
+            if (b == m_current) display = QStringLiteral("✓ ") + b + QStringLiteral("  ›");
+            else                display = QStringLiteral("   ") + b + QStringLiteral("  ›");
             auto *it = new QStandardItem(display);
             it->setData(0, RoleKind);
             it->setData(b, RolePayload);
@@ -139,30 +149,9 @@ void BranchPickerPopup::rebuild()
     if (!remotes.isEmpty()) {
         addHeader(tr("── Remote ──"));
         for (const auto &b : remotes) {
-            auto *it = new QStandardItem(QStringLiteral("   ") + b);
+            auto *it = new QStandardItem(QStringLiteral("   ") + b + QStringLiteral("  ›"));
             it->setData(1, RoleKind);
             it->setData(b, RolePayload);
-            m_model->appendRow(it);
-            sawAny = true;
-        }
-    }
-
-    // "Create branch from query" — only when query has no exact local match.
-    const QString sanitized = sanitizeBranchName(q);
-    if (!sanitized.isEmpty() && !m_local.contains(sanitized)) {
-        addHeader(tr("── Create ──"));
-        QString fromCurrent = m_current.isEmpty() ? m_default : m_current;
-        if (!fromCurrent.isEmpty()) {
-            auto *it = new QStandardItem(tr("+ Create \"%1\" from %2").arg(sanitized, fromCurrent));
-            it->setData(2, RoleKind);
-            it->setData(sanitized, RolePayload);
-            m_model->appendRow(it);
-            sawAny = true;
-        }
-        if (!m_default.isEmpty() && m_default != fromCurrent) {
-            auto *it = new QStandardItem(tr("+ Create \"%1\" from %2 (default)").arg(sanitized, m_default));
-            it->setData(3, RoleKind);
-            it->setData(sanitized, RolePayload);
             m_model->appendRow(it);
             sawAny = true;
         }
@@ -174,7 +163,6 @@ void BranchPickerPopup::rebuild()
         m_model->appendRow(it);
     }
 
-    // Auto-select first enabled item.
     for (int r = 0; r < m_model->rowCount(); ++r) {
         if (m_model->item(r)->isEnabled()) {
             m_list->setCurrentIndex(m_model->index(r, 0));
@@ -188,20 +176,93 @@ void BranchPickerPopup::onActivated(const QModelIndex &index)
     if (!index.isValid()) return;
     auto *it = m_model->itemFromIndex(index);
     if (!it || !it->isEnabled()) return;
+    showItemMenu(index);
+}
+
+void BranchPickerPopup::showItemMenu(const QModelIndex &index)
+{
+    auto *it = m_model->itemFromIndex(index);
+    if (!it || !it->isEnabled()) return;
     const int kind = it->data(RoleKind).toInt();
     const QString payload = it->data(RolePayload).toString();
-    if (kind == 0) {
-        emit branchSelected(payload);
-        close();
-    } else if (kind == 1) {
-        emit branchSelected(payload);
-        close();
-    } else if (kind == 2) {
-        emit createBranchRequested(payload, m_current.isEmpty() ? m_default : m_current);
-        close();
-    } else if (kind == 3) {
-        emit createBranchRequested(payload, m_default);
-        close();
+    const bool isRemote = (kind == 1);
+    const bool isCurrent = (!isRemote && payload == m_current);
+
+    QMenu menu(this);
+
+    if (!isCurrent) {
+        QAction *aCheckout = menu.addAction(tr("&Checkout"));
+        connect(aCheckout, &QAction::triggered, this, [this, payload]() {
+            emit checkoutRequested(payload);
+            close();
+        });
+    }
+
+    QAction *aNewBranch = menu.addAction(tr("&New Branch…"));
+    connect(aNewBranch, &QAction::triggered, this, [this, payload]() {
+        showNewBranchDialog(payload);
+    });
+
+    if (isRemote && !m_detachedHead) {
+        QAction *aSetUpstream = menu.addAction(tr("&Set as Upstream"));
+        connect(aSetUpstream, &QAction::triggered, this, [this, payload]() {
+            emit setUpstreamRequested(payload);
+            close();
+        });
+    }
+
+    const QRect itemRect = m_list->visualRect(index);
+    const QPoint pos = m_list->mapToGlobal(itemRect.topRight());
+    menu.exec(pos);
+}
+
+void BranchPickerPopup::showNewBranchDialog(const QString &base)
+{
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("New Branch from %1").arg(base));
+    dlg.setMinimumWidth(320);
+
+    auto *layout = new QVBoxLayout(&dlg);
+
+    auto *nameEdit = new QLineEdit(&dlg);
+    nameEdit->setPlaceholderText(tr("Branch name"));
+
+    auto *previewLabel = new QLabel(&dlg);
+    previewLabel->setStyleSheet(QStringLiteral("color: gray; font-size: 11px;"));
+
+    auto *upstreamCheck = new QCheckBox(tr("Set upstream tracking"), &dlg);
+    upstreamCheck->setChecked(true);
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    buttons->button(QDialogButtonBox::Ok)->setEnabled(false);
+
+    layout->addWidget(new QLabel(tr("Create new branch from <b>%1</b>:").arg(base), &dlg));
+    layout->addWidget(nameEdit);
+    layout->addWidget(previewLabel);
+    layout->addWidget(upstreamCheck);
+    layout->addWidget(buttons);
+
+    connect(nameEdit, &QLineEdit::textChanged, &dlg, [&](const QString &text) {
+        const QString sanitized = sanitizeBranchName(text);
+        if (sanitized.isEmpty()) {
+            previewLabel->clear();
+            buttons->button(QDialogButtonBox::Ok)->setEnabled(false);
+        } else {
+            previewLabel->setText(tr("→ %1").arg(sanitized));
+            buttons->button(QDialogButtonBox::Ok)->setEnabled(!m_local.contains(sanitized));
+        }
+    });
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+
+    nameEdit->setFocus();
+
+    if (dlg.exec() == QDialog::Accepted) {
+        const QString name = sanitizeBranchName(nameEdit->text());
+        if (!name.isEmpty()) {
+            emit createBranchRequested(name, base, upstreamCheck->isChecked());
+            close();
+        }
     }
 }
 

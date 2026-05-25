@@ -27,6 +27,7 @@
         <file>languages/scss.lua</file>
         <file>languages/d.lua</file>
         <file>languages/diff.lua</file>
+        <file>languages/env.lua</file>
         <file>languages/erlang.lua</file>
         <file>languages/escript.lua</file>
         <file>languages/forth.lua</file>

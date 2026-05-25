@@ -463,6 +463,20 @@ QString NotepadNextApplication::detectLanguageFromExtension(const QString &exten
                 end
             end
         end
+        for name, L in pairs(languages) do
+            if L.filename_patterns then
+                for _, pat in ipairs(L.filename_patterns) do
+                    -- pcall contains pattern errors so one bad pattern
+                    -- in a language file can't break detection for the rest
+                    local ok, result = pcall(string.match, fileName, pat)
+                    if ok and result then
+                        return name
+                    elseif not ok then
+                        print("filename_patterns error in " .. name .. ": " .. tostring(result))
+                    end
+                end
+            end
+        end
     end
     for name, L in pairs(languages) do
         if L.extensions then

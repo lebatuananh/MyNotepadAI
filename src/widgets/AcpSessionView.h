@@ -41,6 +41,8 @@ class AcpSessionModel;
 class AcpToolCallCard;
 class AcpUsageIndicator;
 
+namespace ai { class PromptImprover; }
+
 class QCheckBox;
 class QComboBox;
 class QDialog;
@@ -50,6 +52,7 @@ class QListWidget;
 class QPlainTextEdit;
 class QPushButton;
 class QScrollArea;
+class QShortcut;
 class QTimer;
 class QToolButton;
 class QVBoxLayout;
@@ -133,11 +136,15 @@ private slots:
     void onEffortComboChanged(int index);
     void onAutoApprovePolicyChanged(const QString &policy);
     void onJumpToBottomClicked();
+    void onImproveClicked();
+    void onImproveFinished(const QString &improvedText);
+    void onImproveError(const QString &message);
 
 private:
     void buildUi();
     void wireSignals();
     void rebuildAttachIcon();
+    void rebuildImproveIcon();
     void hydrateFromModel();
     void appendMessageWidget(int idx);
     // Insert a widget into the transcript timeline at the tail, just above
@@ -149,6 +156,8 @@ private:
     void scrollToBottomDeferred();
     void updateJumpButtonVisibility();
     void positionJumpButton();
+    void positionImproveButton();
+    void updateImproveButtonState();
     bool inputKeyEventIsSubmit(QKeyEvent *ke) const;
     // Heartbeat indicator at the tail of the transcript: shows time since the
     // last structural event (new message / thought / tool call / plan /
@@ -260,6 +269,12 @@ private:
 
     // Slash-command completion
     QListWidget *m_commandPopup = nullptr;
+
+    // Prompt improve button (floating inside m_input)
+    QToolButton *m_improveBtn = nullptr;
+    ai::PromptImprover *m_promptImprover = nullptr;
+    QShortcut *m_improveShortcut = nullptr;
+    QString m_originalDraftBeforeImprove;
 };
 
 #endif // ACP_SESSION_VIEW_H

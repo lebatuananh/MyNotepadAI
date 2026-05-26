@@ -36,7 +36,9 @@ public:
         QUrl    url;             // base URL of OpenAI-compatible endpoint (e.g. https://api.openai.com/v1)
         QString model;
         QString apiKey;          // resolved at call time; passed in Authorization header
-        QString prompt;          // already-assembled full prompt
+        QString systemPrompt;    // optional; sent as a system-role message before the user message
+        QString prompt;          // already-assembled full prompt (user role)
+        int     maxTokens = 0;   // 0 = omit from payload (provider default)
         int     idleTimeoutSec = 60;
     };
 

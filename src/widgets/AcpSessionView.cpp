@@ -29,6 +29,9 @@
 #include "AcpUsageIndicator.h"
 #include "AiAgentDock.h"
 #include "ApplicationSettings.h"
+#include "NotepadNextApplication.h"
+#include "ai/CredentialStore.h"
+#include "ai/PromptImprover.h"
 
 #include <QBuffer>
 #include <QCheckBox>
@@ -52,9 +55,11 @@
 #include <QPixmap>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QResizeEvent>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QShortcut>
 #include <QStyle>
 #include <QTimer>
 #include <QToolButton>
@@ -478,6 +483,7 @@ void AcpSessionView::buildUi()
     cb->setMaximumHeight(120);
     m_input = cb;
     m_input->installEventFilter(this);
+    m_input->viewport()->installEventFilter(this);
     outer->addWidget(m_input);
 
     // Slash-command completion popup (frameless, positioned above input).
@@ -486,6 +492,27 @@ void AcpSessionView::buildUi()
     m_commandPopup->setFocusPolicy(Qt::NoFocus);
     m_commandPopup->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_commandPopup->hide();
+
+    // 6b. Floating improve-prompt button (child of m_input, bottom-right).
+    m_improveBtn = new QToolButton(m_input->viewport());
+    m_improveBtn->setAutoRaise(true);
+    m_improveBtn->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    m_improveBtn->setToolTip(tr("Improve prompt with AI (Ctrl+I)"));
+    m_improveBtn->setAccessibleName(tr("Improve prompt with AI"));
+    m_improveBtn->setAccessibleDescription(tr("Rewrite the current prompt to be clearer (Ctrl+I)"));
+    m_improveBtn->setCursor(Qt::PointingHandCursor);
+    m_improveBtn->setStyleSheet(QStringLiteral(
+        "QToolButton { background: transparent; border: none; padding: 2px; border-radius: 3px; }"
+        "QToolButton:hover { background: palette(midlight); }"
+        "QToolButton:disabled { opacity: 0.3; }"));
+    rebuildImproveIcon();
+    m_improveBtn->hide();
+    connect(m_improveBtn, &QToolButton::clicked, this, &AcpSessionView::onImproveClicked);
+
+    // Ctrl+I shortcut for improve (scoped to input widget).
+    m_improveShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_I), m_input);
+    m_improveShortcut->setContext(Qt::WidgetShortcut);
+    connect(m_improveShortcut, &QShortcut::activated, this, &AcpSessionView::onImproveClicked);
 
     // 7. Button row + usage. Attach is a secondary chrome action — render it
     // as an icon-only flat tool-button so Send remains the only prominent
@@ -558,6 +585,7 @@ void AcpSessionView::buildUi()
         const bool hasContent = !m_input->toPlainText().trimmed().isEmpty() || m_attachmentList->isNonEmpty();
         m_sendBtn->setEnabled(hasContent && (!m_model || !m_model->isProcessing()));
         filterCommandPopup();
+        updateImproveButtonState();
     });
     connect(m_attachmentList, &AcpImageAttachmentList::contentsChanged, this, [this]() {
         const bool hasContent = !m_input->toPlainText().trimmed().isEmpty() || m_attachmentList->isNonEmpty();
@@ -586,6 +614,22 @@ void AcpSessionView::buildUi()
                 this, &AcpSessionView::applyChatFont);
     }
     applyChatFont();
+
+    // Prompt improver — uses the same AI provider as commit message generation.
+    {
+        auto *npApp = qobject_cast<NotepadNextApplication *>(qApp);
+        auto *settings = appSettings();
+        ai::CredentialStore *credStore = npApp ? npApp->getCredentialStore() : nullptr;
+        if (settings) {
+            m_promptImprover = new ai::PromptImprover(settings, credStore, this);
+            connect(m_promptImprover, &ai::PromptImprover::finished,
+                    this, &AcpSessionView::onImproveFinished);
+            connect(m_promptImprover, &ai::PromptImprover::errorOccurred,
+                    this, &AcpSessionView::onImproveError);
+            connect(m_promptImprover, &ai::PromptImprover::stateChanged,
+                    this, [this]() { updateImproveButtonState(); });
+        }
+    }
 }
 
 void AcpSessionView::wireSignals()
@@ -1689,6 +1733,10 @@ bool AcpSessionView::eventFilter(QObject *watched, QEvent *event)
         syncTranscriptHostWidth();
         positionJumpButton();
     }
+    if (event->type() == QEvent::Resize
+        && (watched == m_input || (m_input && watched == m_input->viewport()))) {
+        positionImproveButton();
+    }
     if (event->type() == QEvent::FocusIn && watched == m_input) {
         emit inputFocused();
     }
@@ -1703,6 +1751,7 @@ void AcpSessionView::changeEvent(QEvent *event)
     case QEvent::StyleChange:
     case QEvent::ApplicationPaletteChange:
         rebuildAttachIcon();
+        rebuildImproveIcon();
         break;
     default:
         break;
@@ -1714,6 +1763,13 @@ void AcpSessionView::rebuildAttachIcon()
     if (!m_attachBtn) return;
     m_attachBtn->setIcon(tintedIcon(QStringLiteral(":/icons/paperclip.svg"),
                                     palette().color(QPalette::WindowText)));
+}
+
+void AcpSessionView::rebuildImproveIcon()
+{
+    if (!m_improveBtn) return;
+    m_improveBtn->setIcon(tintedIcon(QStringLiteral(":/icons/sparkle.svg"),
+                                     palette().color(QPalette::WindowText)));
 }
 
 void AcpSessionView::applyChatFont()
@@ -1823,3 +1879,102 @@ void AcpSessionView::acceptCommandCompletion()
     m_input->setTextCursor(cur);
     hideCommandPopup();
 }
+
+void AcpSessionView::positionImproveButton()
+{
+    if (!m_improveBtn || !m_input) return;
+    constexpr int kPad = 4;
+    const QSize btnSz = m_improveBtn->sizeHint();
+    int rightOffset = kPad;
+    if (auto *sb = m_input->verticalScrollBar(); sb && sb->isVisible())
+        rightOffset += sb->width();
+    const int x = m_input->viewport()->width() - btnSz.width() - rightOffset;
+    const int y = m_input->viewport()->height() - btnSz.height() - kPad;
+    m_improveBtn->move(x, y);
+}
+
+void AcpSessionView::updateImproveButtonState()
+{
+    if (!m_improveBtn || !m_input) return;
+
+    const QString text = m_input->toPlainText().trimmed();
+
+    // Hide when empty.
+    if (text.isEmpty()) {
+        m_improveBtn->hide();
+        return;
+    }
+
+    // Hide when bare slash command (no arguments).
+    static const QRegularExpression bareCmd(QStringLiteral("^\\s*/\\w+\\s*$"));
+    if (bareCmd.match(text).hasMatch()) {
+        m_improveBtn->hide();
+        return;
+    }
+
+    m_improveBtn->show();
+    positionImproveButton();
+
+    // Disable when streaming or LLM not configured.
+    const bool canFire = m_promptImprover && m_promptImprover->canImprove();
+    m_improveBtn->setEnabled(canFire);
+}
+
+void AcpSessionView::onImproveClicked()
+{
+    if (!m_promptImprover || !m_input) return;
+    if (!m_promptImprover->canImprove()) return;
+
+    const QString draft = m_input->toPlainText().trimmed();
+    if (draft.isEmpty()) return;
+
+    // Find the owning dock to get the working directory.
+    QString workingDir;
+    for (QWidget *w = parentWidget(); w; w = w->parentWidget()) {
+        if (auto *dock = qobject_cast<AiAgentDock *>(w)) {
+            workingDir = dock->workingDirectory();
+            break;
+        }
+    }
+
+    const QList<AcpProtocol::AcpCommandInfo> commands =
+        m_model ? m_model->availableCommands() : QList<AcpProtocol::AcpCommandInfo>{};
+
+    m_originalDraftBeforeImprove = m_input->toPlainText();
+    m_input->setReadOnly(true);
+    m_improveBtn->setEnabled(false);
+    m_improveBtn->setToolTip(tr("Improving prompt..."));
+
+    m_promptImprover->trigger(draft, workingDir, commands);
+}
+
+void AcpSessionView::onImproveFinished(const QString &improvedText)
+{
+    if (!m_input) return;
+
+    // Replace via QTextCursor so Ctrl+Z restores the original.
+    QTextCursor cursor(m_input->document());
+    cursor.beginEditBlock();
+    cursor.movePosition(QTextCursor::Start);
+    cursor.movePosition(QTextCursor::End, QTextCursor::KeepAnchor);
+    cursor.insertText(improvedText);
+    cursor.endEditBlock();
+
+    m_input->setReadOnly(false);
+    m_improveBtn->setToolTip(tr("Improve prompt with AI (Ctrl+I)"));
+    m_input->setFocus();
+    updateImproveButtonState();
+}
+
+void AcpSessionView::onImproveError(const QString &message)
+{
+    if (!m_input) return;
+
+    m_input->setReadOnly(false);
+    m_improveBtn->setToolTip(tr("Improve prompt with AI (Ctrl+I)"));
+    updateImproveButtonState();
+
+    setBanner(message, BannerKind::Warning);
+    QTimer::singleShot(4000, this, &AcpSessionView::clearBanner);
+}
+

@@ -47,6 +47,7 @@
         <file>icons/plus.svg</file>
         <file>icons/list_with_icons.svg</file>
         <file>icons/paperclip.svg</file>
+        <file>icons/sparkle.svg</file>
         <file>icons/markdown-preview.svg</file>
     </qresource>
 </RCC>

@@ -389,6 +389,8 @@ qt_add_executable(NotepadAI
 	ai/LlmHttpClient.cpp
 	ai/CommitMessageGenerator.h
 	ai/CommitMessageGenerator.cpp
+	ai/PromptImprover.h
+	ai/PromptImprover.cpp
 )
 
 # Platform-conditional CredentialStore backend + native API link.

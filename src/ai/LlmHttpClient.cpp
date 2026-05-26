@@ -48,16 +48,26 @@ QUrl LlmHttpClient::normalizeChatCompletionsUrl(const QUrl &base)
 
 QByteArray LlmHttpClient::buildPayload(const Request &req)
 {
+    QJsonArray messages;
+
+    if (!req.systemPrompt.isEmpty()) {
+        QJsonObject sysMsg;
+        sysMsg.insert(QLatin1String("role"),    QLatin1String("system"));
+        sysMsg.insert(QLatin1String("content"), req.systemPrompt);
+        messages.append(sysMsg);
+    }
+
     QJsonObject userMsg;
     userMsg.insert(QLatin1String("role"),    QLatin1String("user"));
     userMsg.insert(QLatin1String("content"), req.prompt);
-    QJsonArray messages;
     messages.append(userMsg);
 
     QJsonObject body;
     body.insert(QLatin1String("model"),    req.model);
     body.insert(QLatin1String("messages"), messages);
     body.insert(QLatin1String("stream"),   true);
+    if (req.maxTokens > 0)
+        body.insert(QLatin1String("max_tokens"), req.maxTokens);
     return QJsonDocument(body).toJson(QJsonDocument::Compact);
 }
 

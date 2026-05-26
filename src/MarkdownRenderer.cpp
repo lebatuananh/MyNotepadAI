@@ -93,35 +93,35 @@ public:
         : m_content(content), m_styles(content.size(), 0)
     {
         m_lineStarts.push_back(0);
-        for (Sci_Position i = 0; i < content.size(); ++i) {
-            if (content[i] == '\n') m_lineStarts.push_back(i + 1);
+        for (Sci_Position i = 0; i < Sci_Position(content.size()); ++i) {
+            if (content[qsizetype(i)] == '\n') m_lineStarts.push_back(i + 1);
         }
-        m_lineStarts.push_back(content.size());
+        m_lineStarts.push_back(Sci_Position(content.size()));
         m_lineState.assign(m_lineStarts.size(), 0);
     }
     const QByteArray &styles() const { return m_styles; }
 
     int SCI_METHOD Version() const override { return Scintilla::dvRelease4; }
     void SCI_METHOD SetErrorStatus(int) override {}
-    Sci_Position SCI_METHOD Length() const override { return m_content.size(); }
+    Sci_Position SCI_METHOD Length() const override { return Sci_Position(m_content.size()); }
     void SCI_METHOD GetCharRange(char *buf, Sci_Position pos, Sci_Position len) const override {
-        const auto end = std::min<Sci_Position>(pos + len, m_content.size());
+        const auto end = std::min<Sci_Position>(pos + len, Sci_Position(m_content.size()));
         const auto start = std::max<Sci_Position>(pos, 0);
         if (end > start) std::memcpy(buf, m_content.constData() + start, size_t(end - start));
     }
     char SCI_METHOD StyleAt(Sci_Position pos) const override {
-        if (pos < 0 || pos >= m_styles.size()) return 0;
+        if (pos < 0 || pos >= Sci_Position(m_styles.size())) return 0;
         return m_styles[qsizetype(pos)];
     }
     Sci_Position SCI_METHOD LineFromPosition(Sci_Position pos) const override {
         if (pos <= 0) return 0;
-        pos = std::min(pos, m_content.size());
+        pos = std::min(pos, Sci_Position(m_content.size()));
         auto it = std::upper_bound(m_lineStarts.begin(), m_lineStarts.end(), pos);
         return Sci_Position((it - m_lineStarts.begin()) - 1);
     }
     Sci_Position SCI_METHOD LineStart(Sci_Position line) const override {
         if (line < 0) return 0;
-        if (size_t(line) >= m_lineStarts.size()) return m_content.size();
+        if (size_t(line) >= m_lineStarts.size()) return Sci_Position(m_content.size());
         return m_lineStarts[size_t(line)];
     }
     int SCI_METHOD GetLevel(Sci_Position) const override { return 0x400; }
@@ -136,15 +136,15 @@ public:
         m_lineState[size_t(line)] = state;
         return state;
     }
-    void SCI_METHOD StartStyling(Sci_Position pos) override { m_stylingPos = std::clamp<Sci_Position>(pos, 0, m_styles.size()); }
+    void SCI_METHOD StartStyling(Sci_Position pos) override { m_stylingPos = std::clamp<Sci_Position>(pos, 0, Sci_Position(m_styles.size())); }
     bool SCI_METHOD SetStyleFor(Sci_Position len, char style) override {
-        const auto end = std::min<Sci_Position>(m_stylingPos + len, m_styles.size());
+        const auto end = std::min<Sci_Position>(m_stylingPos + len, Sci_Position(m_styles.size()));
         if (end > m_stylingPos) std::memset(m_styles.data() + m_stylingPos, (unsigned char)style, size_t(end - m_stylingPos));
         m_stylingPos = end;
         return true;
     }
     bool SCI_METHOD SetStyles(Sci_Position len, const char *s) override {
-        const auto end = std::min<Sci_Position>(m_stylingPos + len, m_styles.size());
+        const auto end = std::min<Sci_Position>(m_stylingPos + len, Sci_Position(m_styles.size()));
         if (end > m_stylingPos) std::memcpy(m_styles.data() + m_stylingPos, s, size_t(end - m_stylingPos));
         m_stylingPos = end;
         return true;
@@ -158,15 +158,15 @@ public:
     int SCI_METHOD GetLineIndentation(Sci_Position) override { return 0; }
     Sci_Position SCI_METHOD LineEnd(Sci_Position line) const override {
         const auto next = LineStart(line + 1);
-        if (next > 0 && next <= m_content.size() && m_content[qsizetype(next - 1)] == '\n') return next - 1;
+        if (next > 0 && next <= Sci_Position(m_content.size()) && m_content[qsizetype(next - 1)] == '\n') return next - 1;
         return next;
     }
     Sci_Position SCI_METHOD GetRelativePosition(Sci_Position pos, Sci_Position off) const override {
-        return std::clamp<Sci_Position>(pos + off, 0, m_content.size());
+        return std::clamp<Sci_Position>(pos + off, 0, Sci_Position(m_content.size()));
     }
     int SCI_METHOD GetCharacterAndWidth(Sci_Position pos, Sci_Position *w) const override {
         if (w) *w = 1;
-        if (pos < 0 || pos >= m_content.size()) return 0;
+        if (pos < 0 || pos >= Sci_Position(m_content.size())) return 0;
         return (unsigned char)m_content[qsizetype(pos)];
     }
 private:

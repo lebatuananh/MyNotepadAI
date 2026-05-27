@@ -342,6 +342,35 @@ void TerminalManager::shutdown()
     }
 }
 
+TerminalDock *TerminalManager::findTaskDock(const QString &command, const QString &cwd) const
+{
+    const QString cleanCwd = QDir::cleanPath(cwd);
+    for (const auto &d : m_docks) {
+        if (d.isNull()) continue;
+        if (!d->isTask()) continue;
+        if (d->taskCommand() == command &&
+            QDir::cleanPath(d->initialCwd()).compare(cleanCwd, Qt::CaseInsensitive) == 0) {
+            return d.data();
+        }
+    }
+    return nullptr;
+}
+
+void TerminalManager::runOrRestartTask(const QString &cwd, const TerminalTask &task)
+{
+    TerminalDock *existing = findTaskDock(task.command, cwd);
+    if (existing) {
+        existing->setVisible(true);
+        existing->raise();
+        existing->restartTask();
+        if (auto *w = existing->terminalWidget()) {
+            w->setFocus();
+        }
+        return;
+    }
+    openTask(cwd, task);
+}
+
 QList<TerminalTask> TerminalManager::tasksForWorkspace(const QString &workspacePath) const
 {
     if (!m_app || !m_app->getSettings())

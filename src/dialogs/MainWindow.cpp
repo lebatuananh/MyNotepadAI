@@ -52,6 +52,8 @@
 #include <QProcess>
 #include <QScreen>
 #include <QFontDatabase>
+#include <QDateTime>
+#include <QKeyEvent>
 
 #ifdef Q_OS_WIN
 #include <QSimpleUpdater.h>
@@ -112,6 +114,7 @@
 #include "TabsQuickActionsBar.h"
 
 #include "QuickFindWidget.h"
+#include "QuickFileOpenDialog.h"
 
 #include "EditorPrintPreviewRenderer.h"
 #include "MacroEditorDialog.h"
@@ -225,6 +228,42 @@ bool forwardClipboardToFocusWidget(const char *slot)
     if (!w) return false;
     return QMetaObject::invokeMethod(w, slot);
 }
+
+class DoubleShiftFilter : public QObject
+{
+public:
+    explicit DoubleShiftFilter(QAction *action, QObject *parent)
+        : QObject(parent), m_action(action) {}
+
+protected:
+    bool eventFilter(QObject *, QEvent *event) override
+    {
+        const auto type = event->type();
+        if (Q_LIKELY(type != QEvent::KeyRelease && type != QEvent::KeyPress))
+            return false;
+        auto *ke = static_cast<QKeyEvent *>(event);
+        if (type == QEvent::KeyPress) {
+            if (ke->key() != Qt::Key_Shift)
+                m_lastShiftReleaseMs = 0;
+            return false;
+        }
+        if (ke->key() != Qt::Key_Shift || ke->modifiers() != Qt::NoModifier || ke->isAutoRepeat())
+            return false;
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        if (now - m_lastShiftReleaseMs < 400) {
+            m_lastShiftReleaseMs = 0;
+            if (m_action && m_action->isEnabled())
+                m_action->trigger();
+        } else {
+            m_lastShiftReleaseMs = now;
+        }
+        return false;
+    }
+
+private:
+    QAction *m_action;
+    qint64 m_lastShiftReleaseMs = 0;
+};
 
 } // namespace
 
@@ -385,6 +424,32 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
     });
 
     connect(ui->actionPrint, &QAction::triggered, this, &MainWindow::print);
+
+    {
+        m_actionQuickFileOpen = new QAction(tr("Quick File Open..."), this);
+        m_actionQuickFileOpen->setObjectName(QStringLiteral("actionQuickFileOpen"));
+        m_actionQuickFileOpen->setShortcuts({
+            QKeySequence(Qt::CTRL | Qt::Key_P),
+            QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N),
+        });
+        m_actionQuickFileOpen->setEnabled(false);
+        addAction(m_actionQuickFileOpen);
+        connect(m_actionQuickFileOpen, &QAction::triggered, this, [this]() {
+            const QString root = currentWorkspaceRoot();
+            if (root.isEmpty()) return;
+            QuickFileOpenDialog dlg(root, this);
+            dlg.move(mapToGlobal(QPoint((width() - dlg.minimumWidth()) / 2, height() / 5)));
+            if (dlg.exec() == QDialog::Accepted) {
+                const QString path = dlg.selectedFilePath();
+                if (!path.isEmpty())
+                    openFile(path);
+            }
+        });
+        qApp->installEventFilter(new DoubleShiftFilter(m_actionQuickFileOpen, this));
+        connect(this, &MainWindow::activeWorkspaceChanged, m_actionQuickFileOpen, [this]() {
+            m_actionQuickFileOpen->setEnabled(!currentWorkspaceRoot().isEmpty());
+        });
+    }
 
     connectEditorAction(ui->actionToggleSingleLineComment, &ScintillaNext::toggleCommentSelection);
     connectEditorAction(ui->actionSingleLineComment, &ScintillaNext::commentLineSelection);

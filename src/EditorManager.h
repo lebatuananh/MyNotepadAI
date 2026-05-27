@@ -69,6 +69,9 @@ private:
     // active lexer and only overrides backgrounds + chrome colors.
     void applyThemeToEditor(ScintillaNext *editor, bool dark, bool initialSetup);
 
+    // Task runner gutter: create or destroy based on filename match.
+    void evaluateTaskRunner(ScintillaNext *editor);
+
     QList<QPointer<ScintillaNext>> editors;
     QSet<const ScintillaNext *> m_diffViews;
     ApplicationSettings *settings;

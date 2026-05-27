@@ -257,6 +257,7 @@ private:
     MiniAppRegistry *m_miniAppRegistry = nullptr;
 
     QAction *m_actionMarkdownPreview = nullptr;
+    QAction *m_actionQuickFileOpen = nullptr;
 
     QPointer<FolderAsWorkspaceDock> m_activeWorkspace;
     QPointer<AiAgentDock> m_activeAiDock;

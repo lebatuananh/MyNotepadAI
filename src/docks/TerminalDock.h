@@ -37,7 +37,10 @@ public:
 
     TerminalWidget *terminalWidget() const { return m_terminal; }
     bool isTask() const { return !m_taskCommand.isEmpty(); }
+    QString taskCommand() const { return m_taskCommand; }
+    QString initialCwd() const { return m_initialCwd; }
     void setCwdWarning(const QString &warning) { m_cwdWarning = warning; }
+    void restartTask();
 
 protected:
     void closeEvent(QCloseEvent *event) override;
@@ -45,7 +48,6 @@ protected:
 private:
     void init(const QString &shell, const QString &cwd);
     void setupTaskTitleBar();
-    void restartTask();
 
     TerminalWidget *m_terminal = nullptr;
     QString m_initialCwd;

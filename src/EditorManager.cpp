@@ -17,6 +17,8 @@
  */
 
 #include <QApplication>
+#include <QFileInfo>
+#include <QMainWindow>
 #include <QPointer>
 #include <QTimer>
 
@@ -44,6 +46,8 @@
 #include "HTMLAutoCompleteDecorator.h"
 #include "JustfileRecipeHighlighter.h"
 #include "ProfileScope.h"
+#include "TaskRunnerGutter.h"
+#include "TerminalManager.h"
 
 
 const int MARK_HIDELINESBEGIN = 23;
@@ -404,6 +408,15 @@ void EditorManager::setupEditor(ScintillaNext *editor)
         }
 
         new HTMLAutoCompleteDecorator(editor);
+
+        // Task runner gutter: create if the file is a supported task file.
+        evaluateTaskRunner(editor);
+
+        // Re-evaluate on rename (Save As to different filename)
+        connect(editor, &ScintillaNext::renamed, this, [this, guard]() {
+            if (!guard) return;
+            evaluateTaskRunner(guard.data());
+        });
     });
 }
 
@@ -557,6 +570,36 @@ void EditorManager::applyThemeToEditor(ScintillaNext *editor, bool dark, bool in
 
     editor->setFoldMarginColour(true, foldMarginColour);
     editor->setFoldMarginHiColour(true, foldMarginHiColour);
+}
+
+void EditorManager::evaluateTaskRunner(ScintillaNext *editor)
+{
+    if (!editor) return;
+    if (!editor->isFile()) return;
+    if (isDiffView(editor)) return;
+
+    const QString filePath = editor->getFilePath();
+    const QString filename = QFileInfo(filePath).fileName();
+    const bool shouldHave = TaskRunnerGutter::isTaskFile(filename);
+
+    auto *existing = editor->findChild<TaskRunnerGutter *>(QString(), Qt::FindDirectChildrenOnly);
+
+    if (shouldHave && !existing) {
+        // Find TerminalManager via the main window
+        TerminalManager *termMgr = nullptr;
+        const auto topLevels = QApplication::topLevelWidgets();
+        for (QWidget *w : topLevels) {
+            if (auto *mw = qobject_cast<QMainWindow *>(w)) {
+                termMgr = mw->findChild<TerminalManager *>();
+                if (termMgr) break;
+            }
+        }
+        if (termMgr) {
+            new TaskRunnerGutter(editor, termMgr);
+        }
+    } else if (!shouldHave && existing) {
+        existing->deleteLater();
+    }
 }
 
 void EditorManager::purgeOldEditorPointers()

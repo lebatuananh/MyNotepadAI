@@ -48,9 +48,12 @@ public:
 public slots:
     void openTerminal(const QString &cwd);
     void openTask(const QString &workspaceCwd, const TerminalTask &task);
+    void runOrRestartTask(const QString &cwd, const TerminalTask &task);
     void applyTheme();
     void applyFont();
     void shutdown();
+
+    TerminalDock *findTaskDock(const QString &command, const QString &cwd) const;
 
 private:
     void wireContextMenu(TerminalDock *dock);

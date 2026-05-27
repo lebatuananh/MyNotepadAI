@@ -23,6 +23,7 @@
 #include <memory>
 
 #include <windows.h>
+#include <sddl.h>
 #include <WebView2.h>
 
 // Load CreateCoreWebView2EnvironmentWithOptions dynamically so we don't
@@ -31,6 +32,22 @@
 using CreateEnvironmentFn = HRESULT(STDAPICALLTYPE *)(
     PCWSTR, PCWSTR, IUnknown *,
     ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler *);
+
+static void ensureDirectoryWritable(const QString &path)
+{
+    QDir().mkpath(path);
+
+    // Grant the current user full control so WebView2 can create EBWebView/ inside.
+    // SDDL: D:(A;OICI;GA;;;CU) = Allow, Object-Inherit + Container-Inherit,
+    //        Generic-All, to Creator/Owner mapped as Current User (CU).
+    PSECURITY_DESCRIPTOR sd = nullptr;
+    if (ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            L"D:(A;OICI;GA;;;CU)", SDDL_REVISION_1, &sd, nullptr)) {
+        SetFileSecurityW(path.toStdWString().c_str(),
+                         DACL_SECURITY_INFORMATION, sd);
+        LocalFree(sd);
+    }
+}
 
 static CreateEnvironmentFn resolveCreateEnvironment()
 {
@@ -165,7 +182,7 @@ private:
         const QString appData = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
         m_dbgUserDataFolder = QDir::toNativeSeparators(
             appData + QStringLiteral("/MiniApps/") + appId());
-        QDir().mkpath(m_dbgUserDataFolder);
+        ensureDirectoryWritable(m_dbgUserDataFolder);
 
         auto createEnv = resolveCreateEnvironment();
         m_dbgLoaderResolved = (createEnv != nullptr);

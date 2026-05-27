@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  QT_VERSION: "6.8"
+  QT_VERSION: "6.10"
 
 jobs:
   version:

@@ -5,8 +5,6 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-#ifdef Q_OS_WIN // Entire file is Windows-only
-
 #include "WebViewWidget.h"
 
 #include <QCoreApplication>
@@ -368,5 +366,3 @@ WebViewWidget *WebViewWidget::create(const QString &appId, const QUrl &url, QWid
 {
     return new WebViewWidgetWin(appId, url, parent);
 }
-
-#endif // Q_OS_WIN

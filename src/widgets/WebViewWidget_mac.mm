@@ -5,8 +5,6 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-#ifdef Q_OS_MACOS // Entire file is macOS-only
-
 #include "WebViewWidget.h"
 
 #include <QUrl>
@@ -143,5 +141,3 @@ WebViewWidget *WebViewWidget::create(const QString &appId, const QUrl &url, QWid
 }
 
 #include "WebViewWidget_mac.moc"
-
-#endif // Q_OS_MACOS

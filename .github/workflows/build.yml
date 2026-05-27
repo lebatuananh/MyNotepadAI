@@ -102,7 +102,6 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           echo "DISTRIBUTION=AppImage" >> "$GITHUB_ENV"
-          echo "EXTRA_PLATFORM_PLUGINS=libqwayland-generic.so" >> "$GITHUB_ENV"
           sudo apt-get install libxkbcommon-dev libxkbcommon-x11-0 fuse libxcb-cursor-dev libcups2-dev
 
       - name: Configure

@@ -22,6 +22,11 @@ class WebViewWidgetMac;
 @property (assign) WebViewWidgetMac *owner;
 @end
 
+// Script message handler for copilot result callback.
+@interface CopilotMessageHandler : NSObject <WKScriptMessageHandler>
+@property (assign) WebViewWidgetMac *owner;
+@end
+
 // macOS WebView implementation using WKWebView embedded via QWindow::fromWinId.
 class WebViewWidgetMac : public WebViewWidget
 {
@@ -41,6 +46,21 @@ public:
                 NSUUID *nsUuid = [[NSUUID alloc] initWithUUIDString:storeId.toString(QUuid::WithoutBraces).toNSString()];
                 config.websiteDataStore = [WKWebsiteDataStore dataStoreForIdentifier:nsUuid];
             }
+
+            // Inject pristine fetch reference before any page script runs
+            NSString *pristineFetchJs = @"Object.defineProperty(window,'__nai_fetch',{"
+                "value:window.fetch.bind(window),"
+                "writable:false,configurable:false,enumerable:false});";
+            WKUserScript *fetchScript = [[WKUserScript alloc]
+                initWithSource:pristineFetchJs
+                injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                forMainFrameOnly:YES];
+            [config.userContentController addUserScript:fetchScript];
+
+            // Register message handler for copilot results
+            m_msgHandler = [[CopilotMessageHandler alloc] init];
+            m_msgHandler.owner = this;
+            [config.userContentController addScriptMessageHandler:m_msgHandler name:@"pageAgent"];
 
             NSRect frame = NSMakeRect(0, 0, 400, 300);
             m_webView = [[WKWebView alloc] initWithFrame:frame configuration:config];
@@ -78,16 +98,49 @@ public:
     void goBack() override { if (m_webView) [m_webView goBack]; }
     void goForward() override { if (m_webView) [m_webView goForward]; }
 
+    void executeScript(const QString &js, std::function<void(const QString &)> callback) override
+    {
+        if (!m_webView) {
+            if (callback) callback(QString());
+            return;
+        }
+        @autoreleasepool {
+            NSString *nsJs = js.toNSString();
+            if (callback) {
+                auto cb = std::move(callback);
+                [m_webView evaluateJavaScript:nsJs completionHandler:^(id result, NSError *error) {
+                    Q_UNUSED(error)
+                    QString str;
+                    if (result)
+                        str = QString::fromNSString([NSString stringWithFormat:@"%@", result]);
+                    cb(str);
+                }];
+            } else {
+                [m_webView evaluateJavaScript:nsJs completionHandler:nil];
+            }
+        }
+    }
+
+    QString nativePostMessage() const override
+    {
+        return QStringLiteral("window.webkit.messageHandlers.pageAgent.postMessage");
+    }
+
     void destroy() override
     {
         if (m_webView) {
             [m_webView stopLoading];
+            [m_webView.configuration.userContentController removeScriptMessageHandlerForName:@"pageAgent"];
             m_webView.navigationDelegate = nil;
             m_webView = nil;
         }
         if (m_navDelegate) {
             m_navDelegate.owner = nullptr;
             m_navDelegate = nil;
+        }
+        if (m_msgHandler) {
+            m_msgHandler.owner = nullptr;
+            m_msgHandler = nil;
         }
     }
 
@@ -114,6 +167,7 @@ protected:
 private:
     WKWebView *m_webView = nil;
     MiniAppNavDelegate *m_navDelegate = nil;
+    CopilotMessageHandler *m_msgHandler = nil;
     QWidget *m_container = nullptr;
 };
 
@@ -137,6 +191,21 @@ private:
 {
     Q_UNUSED(webView) Q_UNUSED(navigation)
     if (_owner) _owner->onNavFinished(false, QString::fromNSString(error.localizedDescription));
+}
+
+@end
+
+// --- Copilot message handler implementation ---
+
+@implementation CopilotMessageHandler
+
+- (void)userContentController:(WKUserContentController *)userContentController
+      didReceiveScriptMessage:(WKScriptMessage *)message
+{
+    Q_UNUSED(userContentController)
+    if (_owner && message.body && [message.body isKindOfClass:[NSString class]]) {
+        _owner->handleCopilotMessage(QString::fromNSString((NSString *)message.body));
+    }
 }
 
 @end

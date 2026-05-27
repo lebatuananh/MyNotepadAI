@@ -90,5 +90,6 @@
         <file>languages/markdown.lua</file>
         <file>languages/nix.lua</file>
         <file>languages/abaqus.lua</file>
+        <file>scripts/page-agent-1.8.2.js</file>
     </qresource>
 </RCC>

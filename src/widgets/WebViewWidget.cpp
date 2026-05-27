@@ -9,8 +9,33 @@
 
 #include <QApplication>
 #include <QClipboard>
+#include <QDialogButtonBox>
+#include <QFile>
+#include <QFont>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QPalette>
+#include <QPushButton>
 #include <QStyle>
+#include <QTextBrowser>
 #include <QTimer>
+
+void WebViewWidget::copilotLog(const QString &msg)
+{
+    if (!m_copilotLogDlg) {
+        m_copilotLogDlg = new QDialog(this);
+        m_copilotLogDlg->setWindowTitle(QStringLiteral("AI Copilot Log"));
+        m_copilotLogDlg->resize(600, 400);
+        auto *layout = new QVBoxLayout(m_copilotLogDlg);
+        m_copilotLogText = new QPlainTextEdit(m_copilotLogDlg);
+        m_copilotLogText->setReadOnly(true);
+        m_copilotLogText->setFont(QFont(QStringLiteral("Consolas"), 9));
+        layout->addWidget(m_copilotLogText);
+    }
+    m_copilotLogText->appendPlainText(msg);
+}
 
 WebViewWidget::WebViewWidget(const QString &appId, const QUrl &url, QWidget *parent)
     : QWidget(parent)
@@ -22,6 +47,38 @@ WebViewWidget::WebViewWidget(const QString &appId, const QUrl &url, QWidget *par
     m_mainLayout->setSpacing(0);
 
     setupToolbar();
+
+    // Cross-page retry: when page navigates during execution, re-send command on new page.
+    // Uses a single-shot member timer so rapid successive navigations only produce ONE retry.
+    m_copilotRetryTimer = new QTimer(this);
+    m_copilotRetryTimer->setSingleShot(true);
+    m_copilotRetryTimer->setInterval(1500);
+
+    connect(m_copilotRetryTimer, &QTimer::timeout, this, [this]() {
+        if (!m_copilotExecuting || m_copilotLastCmd.isEmpty()) return;
+        m_copilotExecuting = false;
+        executeCopilotCommand(m_copilotLastCmd, m_copilotProviderUrl, m_copilotModel, m_copilotApiKey);
+    });
+
+    connect(this, &WebViewWidget::navigationCompleted, this, [this](bool success, const QString &) {
+        if (!m_copilotExecuting || !success) return;
+        if (m_copilotLastCmd.isEmpty()) return;
+
+        ++m_copilotNavRetries;
+        if (m_copilotNavRetries > kMaxNavRetries) {
+            copilotLog(QStringLiteral("[navigation] max retries (%1) reached").arg(kMaxNavRetries));
+            m_copilotExecuting = false;
+            m_copilotNavRetries = 0;
+            m_copilotRetryTimer->stop();
+            showCopilotResultDialog(false, tr("Stopped after %1 page navigations").arg(kMaxNavRetries));
+            return;
+        }
+
+        copilotLog(QStringLiteral("[navigation] page navigated, re-sending command (retry %1/%2)")
+                       .arg(m_copilotNavRetries).arg(kMaxNavRetries));
+
+        m_copilotRetryTimer->start();
+    });
 }
 
 void WebViewWidget::setupToolbar()
@@ -56,6 +113,31 @@ void WebViewWidget::setupToolbar()
     connect(m_reloadBtn, &QToolButton::clicked, this, &WebViewWidget::reload);
     m_toolbarLayout->addWidget(m_reloadBtn);
 
+    // AI button — right after reload, with blink animation
+    m_aiBtn = new QToolButton(toolbarWidget);
+    m_aiBtn->setAutoRaise(true);
+    m_aiBtn->setText(QStringLiteral("AI"));
+    m_aiBtn->setToolTip(tr("AI Copilot — control this page with natural language"));
+    QFont aiFont = m_aiBtn->font();
+    aiFont.setBold(true);
+    m_aiBtn->setFont(aiFont);
+    connect(m_aiBtn, &QToolButton::clicked, this, &WebViewWidget::showCopilotInputDialog);
+    m_toolbarLayout->addWidget(m_aiBtn);
+
+    // Blink animation for AI button
+    m_aiBlinkTimer = new QTimer(this);
+    m_aiBlinkTimer->setInterval(800);
+    bool *blinkState = new bool(false);
+    connect(m_aiBlinkTimer, &QTimer::timeout, this, [this, blinkState]() {
+        *blinkState = !*blinkState;
+        if (*blinkState)
+            m_aiBtn->setStyleSheet(QStringLiteral("QToolButton { color: palette(highlight); font-weight: bold; }"));
+        else
+            m_aiBtn->setStyleSheet(QString());
+    });
+    connect(m_aiBtn, &QObject::destroyed, this, [blinkState]() { delete blinkState; });
+    m_aiBlinkTimer->start();
+
     m_urlEdit = new QLineEdit(toolbarWidget);
     m_urlEdit->setText(m_url.toString());
     QFont editFont = m_urlEdit->font();
@@ -87,7 +169,7 @@ void WebViewWidget::setupToolbar()
     m_stopBtn->setIcon(style()->standardIcon(QStyle::SP_BrowserStop));
     m_stopBtn->setToolTip(tr("Stop"));
     m_stopBtn->setIconSize(QSize(14, 14));
-    m_stopBtn->hide(); // Hidden by default, shown during loading
+    m_stopBtn->hide();
     connect(m_stopBtn, &QToolButton::clicked, this, &WebViewWidget::stop);
     m_toolbarLayout->addWidget(m_stopBtn);
 
@@ -98,7 +180,7 @@ void WebViewWidget::setupToolbar()
     QFont cdpFont = m_cdpBtn->font();
     cdpFont.setPointSize(cdpFont.pointSize() - 1);
     m_cdpBtn->setFont(cdpFont);
-    m_cdpBtn->hide(); // Hidden until CDP is ready
+    m_cdpBtn->hide();
     connect(m_cdpBtn, &QToolButton::clicked, this, [this]() {
         if (m_cdpHttpUrl.isEmpty()) return;
         QApplication::clipboard()->setText(m_cdpHttpUrl);
@@ -145,6 +227,319 @@ void WebViewWidget::updateUrlBar(const QString &url)
     if (m_urlEdit && !m_urlEdit->hasFocus())
         m_urlEdit->setText(url);
     emit urlChanged(url);
+}
+
+void WebViewWidget::showCopilotInputDialog()
+{
+    if (m_copilotExecuting) return;
+
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("AI Copilot"));
+    dlg.resize(450, 160);
+    auto *layout = new QVBoxLayout(&dlg);
+    layout->setContentsMargins(8, 8, 8, 8);
+    layout->setSpacing(8);
+
+    auto *label = new QLabel(tr("Describe what you want to do on this page:"), &dlg);
+    layout->addWidget(label);
+
+    auto *input = new QPlainTextEdit(&dlg);
+    input->setPlaceholderText(tr("e.g. \"click Login button\"\n\"fill email with test@abc.com, then click Submit\""));
+    input->setMaximumHeight(80);
+    layout->addWidget(input);
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    buttons->button(QDialogButtonBox::Ok)->setText(tr("Send"));
+    layout->addWidget(buttons);
+
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+
+    input->setFocus();
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    const QString cmd = input->toPlainText().trimmed();
+    if (cmd.isEmpty()) return;
+
+    m_copilotNavRetries = 0;
+    copilotLog(QStringLiteral("[showCopilotInputDialog] cmd='%1'").arg(cmd));
+    emit copilotCommandRequested(cmd);
+}
+
+void WebViewWidget::showCopilotResultDialog(bool success, const QString &data)
+{
+    QDialog dlg(this);
+    dlg.setWindowTitle(success ? tr("AI Copilot — Done") : tr("AI Copilot — Error"));
+    dlg.resize(500, 350);
+    auto *layout = new QVBoxLayout(&dlg);
+    layout->setContentsMargins(8, 8, 8, 8);
+    layout->setSpacing(8);
+
+    auto *browser = new QTextBrowser(&dlg);
+    browser->setOpenExternalLinks(true);
+    if (success)
+        browser->setMarkdown(data);
+    else
+        browser->setPlainText(data);
+    layout->addWidget(browser);
+
+    auto *nextLabel = new QLabel(tr("Next action (leave empty to close):"), &dlg);
+    layout->addWidget(nextLabel);
+
+    auto *nextInput = new QPlainTextEdit(&dlg);
+    nextInput->setPlaceholderText(tr("e.g. \"now click Submit\", \"fill the password field\""));
+    nextInput->setMaximumHeight(60);
+    layout->addWidget(nextInput);
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    buttons->button(QDialogButtonBox::Ok)->setText(tr("Send"));
+    buttons->button(QDialogButtonBox::Cancel)->setText(tr("Close"));
+    layout->addWidget(buttons);
+
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+
+    nextInput->setFocus();
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    const QString nextCmd = nextInput->toPlainText().trimmed();
+    if (nextCmd.isEmpty()) return;
+
+    // Prepend previous result as context for the next command
+    const QString fullCmd = QStringLiteral("Previous result: %1\n\nUser's next request: %2").arg(data, nextCmd);
+
+    m_copilotNavRetries = 0;
+    copilotLog(QStringLiteral("[showCopilotResultDialog] next cmd='%1'").arg(nextCmd));
+    emit copilotCommandRequested(fullCmd);
+}
+
+void WebViewWidget::executeCopilotCommand(const QString &command, const QString &providerUrl,
+                                          const QString &model, const QString &apiKey)
+{
+    if (m_copilotExecuting) return;
+    m_copilotExecuting = true;
+
+    // Stop blink while executing
+    if (m_aiBlinkTimer) m_aiBlinkTimer->stop();
+    if (m_aiBtn) m_aiBtn->setStyleSheet(QStringLiteral("QToolButton { color: palette(highlight); font-weight: bold; }"));
+
+    m_copilotLastCmd = command;
+    m_copilotProviderUrl = providerUrl;
+    m_copilotModel = model;
+    m_copilotApiKey = apiKey;
+
+    copilotLog(QStringLiteral("[executeCopilotCommand] command='%1' model='%2' baseURL='%3' retry=%4")
+                   .arg(command, model, providerUrl).arg(m_copilotNavRetries));
+
+    static QString bundleCache;
+    if (bundleCache.isEmpty()) {
+        QFile f(QStringLiteral(":/scripts/page-agent-1.8.2.js"));
+        if (f.open(QIODevice::ReadOnly))
+            bundleCache = QString::fromUtf8(f.readAll());
+        copilotLog(QStringLiteral("[executeCopilotCommand] bundle loaded, size=%1").arg(bundleCache.size()));
+    }
+
+    const QString postMsg = nativePostMessage();
+    const QString escapedCmd = QString(command).replace(QLatin1Char('\\'), QStringLiteral("\\\\"))
+                                   .replace(QLatin1Char('\''), QStringLiteral("\\'"))
+                                   .replace(QLatin1Char('\n'), QStringLiteral("\\n"));
+    const QString escapedUrl = QString(providerUrl).replace(QLatin1Char('\\'), QStringLiteral("\\\\"))
+                                   .replace(QLatin1Char('\''), QStringLiteral("\\'"));
+    const QString escapedModel = QString(model).replace(QLatin1Char('\\'), QStringLiteral("\\\\"))
+                                     .replace(QLatin1Char('\''), QStringLiteral("\\'"));
+    const QString escapedKey = QString(apiKey).replace(QLatin1Char('\\'), QStringLiteral("\\\\"))
+                                   .replace(QLatin1Char('\''), QStringLiteral("\\'"));
+
+    QString js;
+    js += QStringLiteral("(async function() {\n"
+                         "  var POST_MSG = ");
+    js += postMsg;
+    js += QStringLiteral(";\n"
+                         "  if (!window.__nai_fetch_cbs) window.__nai_fetch_cbs = {};\n"
+                         "  var nativeFetch = function(url, opts) {\n"
+                         "    opts = opts || {};\n"
+                         "    var id = Math.random().toString(36).slice(2) + Date.now().toString(36);\n"
+                         "    var headers = {};\n"
+                         "    if (opts.headers) {\n"
+                         "      if (opts.headers instanceof Headers) {\n"
+                         "        opts.headers.forEach(function(v,k){ headers[k]=v; });\n"
+                         "      } else if (typeof opts.headers === 'object') {\n"
+                         "        headers = opts.headers;\n"
+                         "      }\n"
+                         "    }\n"
+                         "    var body = '';\n"
+                         "    if (opts.body) body = typeof opts.body === 'string' ? opts.body : JSON.stringify(opts.body);\n"
+                         "    return new Promise(function(resolve, reject) {\n"
+                         "      window.__nai_fetch_cbs[id] = function(status, text) {\n"
+                         "        resolve({ ok: status>=200&&status<300, status:status, statusText:'',\n"
+                         "          text: function(){return Promise.resolve(text);},\n"
+                         "          json: function(){return Promise.resolve(JSON.parse(text));},\n"
+                         "          headers: new Headers() });\n"
+                         "      };\n"
+                         "      POST_MSG(JSON.stringify({type:'nai-fetch',id:id,url:url,method:opts.method||'GET',headers:headers,body:body}));\n"
+                         "      setTimeout(function(){ if(window.__nai_fetch_cbs[id]){delete window.__nai_fetch_cbs[id]; reject(new Error('Native fetch timeout'));} }, 300000);\n"
+                         "    });\n"
+                         "  };\n"
+                         "  try {\n"
+                         "    if (!window.__pa_injected) {\n"
+                         "      // Create default Trusted Types policy to allow Page Agent DOM operations\n"
+                         "      if (window.trustedTypes && window.trustedTypes.createPolicy && !window.__nai_tt) {\n"
+                         "        try { window.__nai_tt = window.trustedTypes.createPolicy('default', {\n"
+                         "          createHTML: function(s){return s;},\n"
+                         "          createScript: function(s){return s;},\n"
+                         "          createScriptURL: function(s){return s;}\n"
+                         "        }); } catch(e){}\n"
+                         "      }\n"
+                         "      // Fake currentScript to disable autoInit in the bundle\n"
+                         "      var _fakeScript = {src:'blob:nai?autoInit=false'};\n"
+                         "      Object.defineProperty(document, 'currentScript', {value:_fakeScript, configurable:true});\n");
+    js += bundleCache;
+    js += QStringLiteral("\n      Object.defineProperty(document, 'currentScript', {value:null, configurable:true});\n"
+                         "      window.__pa_injected = true;\n"
+                         "    }\n"
+                         "    var _paBaseURL = '");
+    js += escapedUrl;
+    js += QStringLiteral("';\n"
+                         "    var _origFetch = window.fetch;\n"
+                         "    window.fetch = new Proxy(_origFetch, {\n"
+                         "      apply: function(target, thisArg, args) {\n"
+                         "        var url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url ? args[0].url : '');\n"
+                         "        if (url && url.indexOf(_paBaseURL) === 0) {\n"
+                         "          var opts = args[1] || {};\n"
+                         "          if (typeof args[0] !== 'string' && args[0]) {\n"
+                         "            opts.method = opts.method || args[0].method;\n"
+                         "            opts.headers = opts.headers || args[0].headers;\n"
+                         "            opts.body = opts.body !== undefined ? opts.body : args[0].body;\n"
+                         "          }\n"
+                         "          return nativeFetch(url, opts);\n"
+                         "        }\n"
+                         "        return Reflect.apply(target, thisArg, args);\n"
+                         "      }\n"
+                         "    });\n"
+                         "    try {\n"
+                         "      var pa = new window.PageAgent({\n"
+                         "        model: '");
+    js += escapedModel;
+    js += QStringLiteral("',\n        baseURL: '");
+    js += escapedUrl;
+    js += QStringLiteral("',\n        apiKey: '");
+    js += escapedKey;
+    js += QStringLiteral("',\n        language: 'en-US',\n"
+                         "        maxSteps: 15\n"
+                         "      });\n"
+                         "      if (pa.panel) { pa.panel.dispose(); pa.panel = null; }\n"
+                         "      var _paObserver = new MutationObserver(function(muts){\n"
+                         "        for(var m of muts) for(var n of m.addedNodes){\n"
+                         "          if(n.nodeType===1 && n.style && parseInt(n.style.zIndex)>2147483600) n.remove();\n"
+                         "        }\n"
+                         "      });\n"
+                         "      _paObserver.observe(document.body, {childList:true});\n"
+                         "      var result;\n"
+                         "      try {\n"
+                         "        result = await Promise.race([\n"
+                         "          pa.execute('");
+    js += escapedCmd;
+    js += QStringLiteral("'),\n"
+                         "          new Promise(function(_, rej) { setTimeout(function() { rej(new Error('Timeout: 10min exceeded')); }, 600000); })\n"
+                         "        ]);\n"
+                         "      } finally { _paObserver.disconnect(); }\n"
+                         "      POST_MSG(JSON.stringify({type:'pa-result',success:result.success,data:result.data}));\n"
+                         "    } catch(e) {\n"
+                         "      POST_MSG(JSON.stringify({type:'pa-result',success:false,data:e.message||String(e)}));\n"
+                         "    } finally {\n"
+                         "      window.fetch = _origFetch;\n"
+                         "    }\n"
+                         "  } catch(e) {\n"
+                         "    POST_MSG(JSON.stringify({type:'pa-result',success:false,data:e.message||String(e)}));\n"
+                         "  }\n"
+                         "})();\n");
+
+    copilotLog(QStringLiteral("[executeCopilotCommand] JS size=%1, calling executeScript...").arg(js.size()));
+    executeScript(js, nullptr);
+}
+
+void WebViewWidget::handleCopilotMessage(const QString &json)
+{
+    copilotLog(QStringLiteral("[handleCopilotMessage] received: %1").arg(json.left(200)));
+    QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8());
+    if (!doc.isObject()) return;
+    QJsonObject obj = doc.object();
+    const QString type = obj.value(QStringLiteral("type")).toString();
+
+    if (type == QStringLiteral("nai-fetch")) {
+        handleNativeFetch(json);
+        return;
+    }
+    if (type != QStringLiteral("pa-result")) return;
+
+    m_copilotExecuting = false;
+    m_copilotNavRetries = 0;
+    m_copilotLastCmd.clear();
+    m_copilotRetryTimer->stop();
+
+    // Restore blink
+    if (m_aiBtn) m_aiBtn->setStyleSheet(QString());
+    if (m_aiBlinkTimer) m_aiBlinkTimer->start();
+
+    const bool success = obj.value(QStringLiteral("success")).toBool();
+    const QString data = obj.value(QStringLiteral("data")).toString();
+
+    showCopilotResultDialog(success, data);
+    emit copilotResult(success, data);
+}
+
+void WebViewWidget::handleNativeFetch(const QString &json)
+{
+    QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8());
+    QJsonObject obj = doc.object();
+    const QString id = obj.value(QStringLiteral("id")).toString();
+    const QString url = obj.value(QStringLiteral("url")).toString();
+    const QString method = obj.value(QStringLiteral("method")).toString(QStringLiteral("GET"));
+    const QJsonObject headers = obj.value(QStringLiteral("headers")).toObject();
+    const QString body = obj.value(QStringLiteral("body")).toString();
+
+    copilotLog(QStringLiteral("[nativeFetch] id=%1 %2 %3").arg(id, method, url));
+
+    if (!m_fetchNam)
+        m_fetchNam = new QNetworkAccessManager(this);
+
+    QNetworkRequest req{QUrl(url)};
+    for (auto it = headers.begin(); it != headers.end(); ++it) {
+        req.setRawHeader(it.key().toUtf8(), it.value().toString().toUtf8());
+    }
+    req.setTransferTimeout(300000);
+
+    QNetworkReply *reply = nullptr;
+    if (method == QStringLiteral("POST"))
+        reply = m_fetchNam->post(req, body.toUtf8());
+    else if (method == QStringLiteral("PUT"))
+        reply = m_fetchNam->put(req, body.toUtf8());
+    else if (method == QStringLiteral("DELETE"))
+        reply = m_fetchNam->deleteResource(req);
+    else
+        reply = m_fetchNam->get(req);
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, id]() {
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const QByteArray responseBody = reply->readAll();
+        reply->deleteLater();
+
+        copilotLog(QStringLiteral("[nativeFetch] id=%1 done, status=%2 bodyLen=%3")
+                       .arg(id).arg(status).arg(responseBody.size()));
+
+        // Use Uint8Array + TextDecoder for proper UTF-8 handling
+        const QString b64 = QString::fromLatin1(responseBody.toBase64());
+        const QString js = QStringLiteral(
+            "if(window.__nai_fetch_cbs && window.__nai_fetch_cbs['%1']){"
+            "  var _b=atob('%3');"
+            "  var _u=new Uint8Array(_b.length);"
+            "  for(var _i=0;_i<_b.length;_i++) _u[_i]=_b.charCodeAt(_i);"
+            "  var _t=new TextDecoder('utf-8').decode(_u);"
+            "  window.__nai_fetch_cbs['%1'](%2, _t);"
+            "  delete window.__nai_fetch_cbs['%1'];"
+            "}").arg(id).arg(status).arg(b64);
+        executeScript(js, nullptr);
+    });
 }
 
 // Factory implementation — returns nullptr on unsupported platforms.

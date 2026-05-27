@@ -169,6 +169,38 @@ public:
         m_webView->GoForward();
     }
 
+    void executeScript(const QString &js, std::function<void(const QString &)> callback) override
+    {
+        if (!m_webView) {
+            if (callback) callback(QString());
+            return;
+        }
+        struct ScriptHandler : ICoreWebView2ExecuteScriptCompletedHandler {
+            std::function<void(const QString &)> cb;
+            ULONG refCount = 1;
+            ScriptHandler(std::function<void(const QString &)> c) : cb(std::move(c)) {}
+            HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppv) override {
+                if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ICoreWebView2ExecuteScriptCompletedHandler)) {
+                    *ppv = this; AddRef(); return S_OK;
+                }
+                *ppv = nullptr; return E_NOINTERFACE;
+            }
+            ULONG STDMETHODCALLTYPE AddRef() override { return ++refCount; }
+            ULONG STDMETHODCALLTYPE Release() override { if (--refCount == 0) { delete this; return 0; } return refCount; }
+            HRESULT STDMETHODCALLTYPE Invoke(HRESULT, LPCWSTR result) override {
+                if (cb) cb(result ? QString::fromWCharArray(result) : QString());
+                return S_OK;
+            }
+        };
+        m_webView->ExecuteScript(js.toStdWString().c_str(),
+                                 callback ? new ScriptHandler(std::move(callback)) : nullptr);
+    }
+
+    QString nativePostMessage() const override
+    {
+        return QStringLiteral("window.chrome.webview.postMessage");
+    }
+
     void destroy() override
     {
         m_alive->store(false, std::memory_order_release);
@@ -379,6 +411,17 @@ private:
         m_webView->add_SourceChanged(
             new SourceChangedHandler(this), &srcToken);
 
+        // Inject pristine fetch reference before any page script runs
+        const std::wstring pristineFetchJs = L"Object.defineProperty(window,'__nai_fetch',{"
+            L"value:window.fetch.bind(window),"
+            L"writable:false,configurable:false,enumerable:false});";
+        m_webView->AddScriptToExecuteOnDocumentCreated(pristineFetchJs.c_str(), nullptr);
+
+        // Subscribe to WebMessage for copilot result callback
+        EventRegistrationToken msgToken;
+        m_webView->add_WebMessageReceived(
+            new WebMessageReceivedHandler(this), &msgToken);
+
         // Navigate to initial URL
         setLoading(true);
         m_dbgNavigateCalled = true;
@@ -561,6 +604,31 @@ private:
                 QString url = QString::fromWCharArray(uri);
                 CoTaskMemFree(uri);
                 owner->updateUrlBar(url);
+            }
+            return S_OK;
+        }
+    };
+
+    // WebMessageReceivedHandler: fires when page calls window.chrome.webview.postMessage().
+    struct WebMessageReceivedHandler : ICoreWebView2WebMessageReceivedEventHandler {
+        WebViewWidgetWin *owner;
+        std::shared_ptr<std::atomic<bool>> alive;
+        ULONG refCount = 1;
+        WebMessageReceivedHandler(WebViewWidgetWin *o) : owner(o), alive(o->m_alive) {}
+        HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppv) override {
+            if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ICoreWebView2WebMessageReceivedEventHandler)) {
+                *ppv = this; AddRef(); return S_OK;
+            }
+            *ppv = nullptr; return E_NOINTERFACE;
+        }
+        ULONG STDMETHODCALLTYPE AddRef() override { return ++refCount; }
+        ULONG STDMETHODCALLTYPE Release() override { if (--refCount == 0) { delete this; return 0; } return refCount; }
+        HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2 *, ICoreWebView2WebMessageReceivedEventArgs *args) override {
+            if (!alive->load(std::memory_order_acquire)) return S_OK;
+            LPWSTR msg = nullptr;
+            if (args && SUCCEEDED(args->TryGetWebMessageAsString(&msg)) && msg) {
+                owner->handleCopilotMessage(QString::fromWCharArray(msg));
+                CoTaskMemFree(msg);
             }
             return S_OK;
         }

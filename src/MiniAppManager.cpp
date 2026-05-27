@@ -13,6 +13,7 @@
 #include "MiniAppRegistry.h"
 #include "NotepadNextApplication.h"
 #include "WebViewWidget.h"
+#include "ai/CredentialStore.h"
 
 #include <QApplication>
 #include <QClipboard>
@@ -237,6 +238,39 @@ void MiniAppManager::onInstanceStateChanged(MiniAppInstance *instance)
             dw->setWidget(webView);
             if (old && old != webView)
                 old->deleteLater();
+
+            // Wire copilot command for Mini App instances
+            connect(webView, &WebViewWidget::copilotCommandRequested, this, [this, webView](const QString &command) {
+                webView->copilotLog(QStringLiteral("[MiniAppManager] copilotCommandRequested received: '%1'").arg(command));
+                auto *settings = m_app->getSettings();
+                auto *credStore = m_app->getCredentialStore();
+                if (!settings || !credStore) {
+                    webView->copilotLog(QStringLiteral("[MiniAppManager] ERROR: settings=%1 credStore=%2")
+                                            .arg(settings != nullptr).arg(credStore != nullptr));
+                    return;
+                }
+
+                const QString providerUrl = settings->commitMessageProviderUrl();
+                const QString model = settings->commitMessageModel();
+                webView->copilotLog(QStringLiteral("[MiniAppManager] providerUrl='%1' model='%2'").arg(providerUrl, model));
+                if (providerUrl.isEmpty() || model.isEmpty()) {
+                    webView->handleCopilotMessage(
+                        QStringLiteral(R"({"type":"pa-result","success":false,"data":"LLM not configured. Set provider URL and model in Settings → AI."})"));
+                    return;
+                }
+
+                QString err;
+                const QString apiKey = credStore->retrieveApiKey(&err);
+                webView->copilotLog(QStringLiteral("[MiniAppManager] apiKey length=%1 err='%2'").arg(apiKey.size()).arg(err));
+                if (apiKey.isEmpty()) {
+                    webView->handleCopilotMessage(
+                        QStringLiteral(R"({"type":"pa-result","success":false,"data":"API key not configured. Set up in Settings → AI."})"));
+                    return;
+                }
+
+                webView->executeCopilotCommand(command, providerUrl, model, apiKey);
+            });
+
             webView->initialize();
         }
     }
@@ -392,6 +426,38 @@ void MiniAppManager::launchQuickBrowser(const QUrl &url, bool enableCdp,
     connect(webView, &WebViewWidget::titleChanged, dw, [dw](const QString &title) {
         if (!title.isEmpty())
             dw->setWindowTitle(title);
+    });
+
+    // Wire copilot command → retrieve LLM config and execute
+    connect(webView, &WebViewWidget::copilotCommandRequested, this, [this, webView](const QString &command) {
+        webView->copilotLog(QStringLiteral("[MiniAppManager] copilotCommandRequested received: '%1'").arg(command));
+        auto *settings = m_app->getSettings();
+        auto *credStore = m_app->getCredentialStore();
+        if (!settings || !credStore) {
+            webView->copilotLog(QStringLiteral("[MiniAppManager] ERROR: settings=%1 credStore=%2")
+                                    .arg(settings != nullptr).arg(credStore != nullptr));
+            return;
+        }
+
+        const QString providerUrl = settings->commitMessageProviderUrl();
+        const QString model = settings->commitMessageModel();
+        webView->copilotLog(QStringLiteral("[MiniAppManager] providerUrl='%1' model='%2'").arg(providerUrl, model));
+        if (providerUrl.isEmpty() || model.isEmpty()) {
+            webView->handleCopilotMessage(
+                QStringLiteral(R"({"type":"pa-result","success":false,"data":"LLM not configured. Set provider URL and model in Settings → AI."})"));
+            return;
+        }
+
+        QString err;
+        const QString apiKey = credStore->retrieveApiKey(&err);
+        webView->copilotLog(QStringLiteral("[MiniAppManager] apiKey length=%1 err='%2'").arg(apiKey.size()).arg(err));
+        if (apiKey.isEmpty()) {
+            webView->handleCopilotMessage(
+                QStringLiteral(R"({"type":"pa-result","success":false,"data":"API key not configured. Set up in Settings → AI."})"));
+            return;
+        }
+
+        webView->executeCopilotCommand(command, providerUrl, model, apiKey);
     });
 
     dw->tabWidget()->setContextMenuPolicy(Qt::CustomContextMenu);

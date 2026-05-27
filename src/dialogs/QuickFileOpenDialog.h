@@ -19,6 +19,8 @@ public:
 
 protected:
     bool eventFilter(QObject *obj, QEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
+    void showEvent(QShowEvent *event) override;
 
 private slots:
     void onTextChanged(const QString &text);

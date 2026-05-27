@@ -437,13 +437,19 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
         connect(m_actionQuickFileOpen, &QAction::triggered, this, [this]() {
             const QString root = currentWorkspaceRoot();
             if (root.isEmpty()) return;
-            QuickFileOpenDialog dlg(root, this);
-            dlg.move(mapToGlobal(QPoint((width() - dlg.minimumWidth()) / 2, height() / 5)));
-            if (dlg.exec() == QDialog::Accepted) {
-                const QString path = dlg.selectedFilePath();
-                if (!path.isEmpty())
-                    openFile(path);
-            }
+            m_actionQuickFileOpen->setEnabled(false);
+            auto *dlg = new QuickFileOpenDialog(root, this);
+            dlg->setAttribute(Qt::WA_DeleteOnClose);
+            dlg->move(mapToGlobal(QPoint((width() - dlg->minimumWidth()) / 2, height() / 5)));
+            connect(dlg, &QDialog::finished, this, [this, dlg](int result) {
+                if (result == QDialog::Accepted) {
+                    const QString path = dlg->selectedFilePath();
+                    if (!path.isEmpty())
+                        previewFile(path);
+                }
+                m_actionQuickFileOpen->setEnabled(!currentWorkspaceRoot().isEmpty());
+            });
+            dlg->show();
         });
         qApp->installEventFilter(new DoubleShiftFilter(m_actionQuickFileOpen, this));
         connect(this, &MainWindow::activeWorkspaceChanged, m_actionQuickFileOpen, [this]() {

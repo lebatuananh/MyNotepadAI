@@ -4,12 +4,14 @@
 #include <QDirIterator>
 #include <QDir>
 #include <QKeyEvent>
+#include <QShowEvent>
 #include <QStringView>
 #include <QtConcurrent>
+#include <QApplication>
 #include <algorithm>
 
 QuickFileOpenDialog::QuickFileOpenDialog(const QString &rootPath, QWidget *parent)
-    : QDialog(parent, Qt::Popup | Qt::FramelessWindowHint)
+    : QDialog(parent, Qt::Tool | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint)
     , m_rootPath(rootPath)
 {
     setMinimumWidth(500);
@@ -32,6 +34,8 @@ QuickFileOpenDialog::QuickFileOpenDialog(const QString &rootPath, QWidget *paren
     layout->addWidget(m_listView);
 
     m_lineEdit->installEventFilter(this);
+    m_listView->installEventFilter(this);
+    qApp->installEventFilter(this);
 
     connect(m_lineEdit, &QLineEdit::textChanged, this, &QuickFileOpenDialog::onTextChanged);
     connect(m_listView, &QListView::activated, this, &QuickFileOpenDialog::onItemActivated);
@@ -47,6 +51,7 @@ QuickFileOpenDialog::QuickFileOpenDialog(const QString &rootPath, QWidget *paren
 
 QuickFileOpenDialog::~QuickFileOpenDialog()
 {
+    qApp->removeEventFilter(this);
     if (m_watcher->isRunning()) {
         m_watcher->waitForFinished();
     }
@@ -65,32 +70,70 @@ void QuickFileOpenDialog::onIndexReady()
     applyFilter(m_lineEdit->text());
 }
 
+void QuickFileOpenDialog::keyPressEvent(QKeyEvent *event)
+{
+    if (event->key() == Qt::Key_Escape) {
+        reject();
+        return;
+    }
+    QDialog::keyPressEvent(event);
+}
+
+void QuickFileOpenDialog::showEvent(QShowEvent *event)
+{
+    QDialog::showEvent(event);
+    activateWindow();
+    m_lineEdit->setFocus();
+}
+
 bool QuickFileOpenDialog::eventFilter(QObject *obj, QEvent *event)
 {
-    if (obj == m_lineEdit && event->type() == QEvent::KeyPress) {
+    if (event->type() == QEvent::MouseButtonPress) {
+        auto *target = qobject_cast<QWidget *>(obj);
+        if (target && !isAncestorOf(target) && target != this) {
+            reject();
+            return false;
+        }
+    }
+
+    if (event->type() == QEvent::KeyPress) {
         auto *ke = static_cast<QKeyEvent *>(event);
-        switch (ke->key()) {
-        case Qt::Key_Down: {
-            int row = m_listView->currentIndex().row() + 1;
-            if (row < m_model->rowCount())
-                m_listView->setCurrentIndex(m_model->index(row));
-            return true;
-        }
-        case Qt::Key_Up: {
-            int row = m_listView->currentIndex().row() - 1;
-            if (row >= 0)
-                m_listView->setCurrentIndex(m_model->index(row));
-            return true;
-        }
-        case Qt::Key_Return:
-        case Qt::Key_Enter:
-            onItemActivated(m_listView->currentIndex());
-            return true;
-        case Qt::Key_Escape:
+        if (ke->key() == Qt::Key_Escape) {
             reject();
             return true;
-        default:
-            break;
+        }
+        if (obj == m_lineEdit) {
+            switch (ke->key()) {
+            case Qt::Key_Down: {
+                int row = m_listView->currentIndex().row() + 1;
+                if (row < m_model->rowCount())
+                    m_listView->setCurrentIndex(m_model->index(row));
+                return true;
+            }
+            case Qt::Key_Up: {
+                int row = m_listView->currentIndex().row() - 1;
+                if (row >= 0)
+                    m_listView->setCurrentIndex(m_model->index(row));
+                return true;
+            }
+            case Qt::Key_Return:
+            case Qt::Key_Enter:
+                onItemActivated(m_listView->currentIndex());
+                return true;
+            default:
+                break;
+            }
+        } else if (obj == m_listView) {
+            switch (ke->key()) {
+            case Qt::Key_Return:
+            case Qt::Key_Enter:
+                onItemActivated(m_listView->currentIndex());
+                return true;
+            default:
+                m_lineEdit->setFocus();
+                m_lineEdit->event(event);
+                return true;
+            }
         }
     }
     return QDialog::eventFilter(obj, event);

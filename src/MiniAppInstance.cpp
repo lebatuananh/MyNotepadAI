@@ -128,13 +128,13 @@ QString MiniAppInstance::buildTitle() const
     switch (m_state) {
     case Spawning:
     case Polling:
-        return m_def.name + QStringLiteral(" \xe2\x80\x94 Starting...");
+        return m_def.name + QStringLiteral(" — Starting...");
     case Initializing:
-        return m_def.name + QStringLiteral(" \xe2\x80\x94 Loading...");
+        return m_def.name + QStringLiteral(" — Loading...");
     case Failed:
-        return m_def.name + QStringLiteral(" \xe2\x80\x94 Error");
+        return m_def.name + QStringLiteral(" — Error");
     case Crashed:
-        return m_def.name + QStringLiteral(" \xe2\x80\x94 Crashed");
+        return m_def.name + QStringLiteral(" — Crashed");
     default:
         return m_def.name;
     }

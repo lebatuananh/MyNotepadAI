@@ -38,6 +38,8 @@ AcpUsageIndicator::AcpUsageIndicator(QWidget *parent)
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(4);
 
+    layout->addStretch();
+
     m_label = new QLabel(this);
     m_label->setAccessibleName(tr("Token usage"));
     m_label->setAccessibleDescription(tr("Total tokens used in the latest turn"));
@@ -57,8 +59,13 @@ AcpUsageIndicator::AcpUsageIndicator(QWidget *parent)
     m_bar->setStyleSheet(QString::fromLatin1(kStyleSheet));
     m_bar->hide();
 
+    m_percentLabel = new QLabel(this);
+    m_percentLabel->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    m_percentLabel->hide();
+
     layout->addWidget(m_label);
     layout->addWidget(m_bar);
+    layout->addWidget(m_percentLabel);
 }
 
 QString AcpUsageIndicator::formatThousands(int value)
@@ -114,7 +121,11 @@ void AcpUsageIndicator::setUsage(const std::optional<AcpProtocol::AcpUsage> &usa
         m_bar->style()->unpolish(m_bar);
         m_bar->style()->polish(m_bar);
         m_bar->show();
+        const int pct = static_cast<int>(frac * 100.0);
+        m_percentLabel->setText(QString::number(pct) + QStringLiteral("%"));
+        m_percentLabel->show();
     } else {
         m_bar->hide();
+        m_percentLabel->hide();
     }
 }

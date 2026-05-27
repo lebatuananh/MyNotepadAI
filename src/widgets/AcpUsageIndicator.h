@@ -44,6 +44,7 @@ private:
 
     QLabel *m_label = nullptr;
     QProgressBar *m_bar = nullptr;
+    QLabel *m_percentLabel = nullptr;
 };
 
 #endif // ACP_USAGE_INDICATOR_H

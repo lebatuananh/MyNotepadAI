@@ -61,6 +61,7 @@ QList<MiniAppDefinition> MiniAppRegistry::workspaceApps(const QString &workspace
         def.icon = obj.value(QStringLiteral("icon")).toString();
         def.healthCheckUrl = obj.value(QStringLiteral("healthCheckUrl")).toString();
         def.healthTimeoutMs = obj.value(QStringLiteral("healthTimeoutMs")).toInt(30000);
+        def.debugPort = obj.value(QStringLiteral("debugPort")).toInt(0);
         def.autoKillOnClose = obj.value(QStringLiteral("autoKillOnClose")).toBool(true);
         if (!def.name.isEmpty())
             result.append(def);
@@ -100,6 +101,7 @@ void MiniAppRegistry::setWorkspaceApps(const QString &workspacePath, const QList
         if (!def.icon.isEmpty()) obj.insert(QStringLiteral("icon"), def.icon);
         if (!def.healthCheckUrl.isEmpty()) obj.insert(QStringLiteral("healthCheckUrl"), def.healthCheckUrl);
         if (def.healthTimeoutMs != 30000) obj.insert(QStringLiteral("healthTimeoutMs"), def.healthTimeoutMs);
+        if (def.debugPort > 0) obj.insert(QStringLiteral("debugPort"), def.debugPort);
         if (!def.autoKillOnClose) obj.insert(QStringLiteral("autoKillOnClose"), false);
         arr.append(obj);
     }
@@ -157,6 +159,7 @@ QList<MiniAppDefinition> MiniAppRegistry::parseJson(const QString &json)
         def.icon = obj.value(QStringLiteral("icon")).toString();
         def.healthCheckUrl = obj.value(QStringLiteral("healthCheckUrl")).toString();
         def.healthTimeoutMs = obj.value(QStringLiteral("healthTimeoutMs")).toInt(30000);
+        def.debugPort = obj.value(QStringLiteral("debugPort")).toInt(0);
         def.autoKillOnClose = obj.value(QStringLiteral("autoKillOnClose")).toBool(true);
         if (!def.name.isEmpty())
             result.append(def);
@@ -179,6 +182,7 @@ QString MiniAppRegistry::toJson(const QList<MiniAppDefinition> &apps)
         if (!def.icon.isEmpty()) obj.insert(QStringLiteral("icon"), def.icon);
         if (!def.healthCheckUrl.isEmpty()) obj.insert(QStringLiteral("healthCheckUrl"), def.healthCheckUrl);
         if (def.healthTimeoutMs != 30000) obj.insert(QStringLiteral("healthTimeoutMs"), def.healthTimeoutMs);
+        if (def.debugPort > 0) obj.insert(QStringLiteral("debugPort"), def.debugPort);
         if (!def.autoKillOnClose) obj.insert(QStringLiteral("autoKillOnClose"), false);
         arr.append(obj);
     }

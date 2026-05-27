@@ -14,6 +14,8 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QTcpSocket>
+#include <QHostAddress>
 #include <QUrl>
 
 MiniAppInstance::MiniAppInstance(const MiniAppDefinition &def, QObject *parent)
@@ -55,6 +57,11 @@ QString MiniAppInstance::debugInfo() const
         info += QStringLiteral("\n");
         info += m_webView->debugInfo();
     }
+    if (!m_cdpHttpUrl.isEmpty()) {
+        info += QStringLiteral("\n--- CDP ---\n");
+        info += QStringLiteral("CDP HTTP URL: %1\n").arg(m_cdpHttpUrl);
+        info += QStringLiteral("CDP WebSocket URL: %1\n").arg(m_cdpWsUrl);
+    }
     return info;
 }
 
@@ -64,6 +71,17 @@ void MiniAppInstance::start()
         return;
 
     setState(Idle);
+
+    // Pre-launch bind-test for CDP debug port
+    if (m_def.debugPort > 0) {
+        QTcpSocket sock;
+        if (!sock.bind(QHostAddress::LocalHost, static_cast<quint16>(m_def.debugPort))) {
+            m_lastError = tr("Debug port %1 is in use").arg(m_def.debugPort);
+            setState(Failed);
+            return;
+        }
+        sock.close();
+    }
 
     if (!m_def.command.isEmpty()) {
         spawnProcess();
@@ -87,6 +105,8 @@ void MiniAppInstance::retry()
         m_webView->deleteLater();
         m_webView = nullptr;
     }
+    m_cdpHttpUrl.clear();
+    m_cdpWsUrl.clear();
     start();
 }
 
@@ -112,6 +132,8 @@ void MiniAppInstance::destroy()
         m_nam->deleteLater();
         m_nam = nullptr;
     }
+    m_cdpHttpUrl.clear();
+    m_cdpWsUrl.clear();
     emit finished();
 }
 
@@ -119,6 +141,15 @@ void MiniAppInstance::setState(State s)
 {
     if (m_state == s) return;
     m_state = s;
+
+    // Clear CDP URLs on terminal/idle states per spec
+    if (s == Failed || s == Crashed || s == Idle) {
+        m_cdpHttpUrl.clear();
+        m_cdpWsUrl.clear();
+        if (m_webView)
+            m_webView->hideCdpUrl();
+    }
+
     emit stateChanged(s);
     emit titleChanged(buildTitle());
 }
@@ -261,7 +292,7 @@ void MiniAppInstance::onHealthPoll()
 
 void MiniAppInstance::createWebView()
 {
-    m_webView = WebViewWidget::create(m_def.id, QUrl(m_def.url), nullptr);
+    m_webView = WebViewWidget::create(m_def.id, QUrl(m_def.url), m_def.debugPort, nullptr);
     if (!m_webView) {
         // Platform doesn't support embedded webview (Linux)
         setState(Running);
@@ -272,6 +303,12 @@ void MiniAppInstance::createWebView()
             this, &MiniAppInstance::onWebViewNavigationCompleted);
     connect(m_webView, &WebViewWidget::processFailed,
             this, &MiniAppInstance::onWebViewProcessFailed);
+    connect(m_webView, &WebViewWidget::cdpReady,
+            this, [this](const QString &httpUrl, const QString &wsUrl) {
+                m_cdpHttpUrl = httpUrl;
+                m_cdpWsUrl = wsUrl;
+                emit cdpUrlChanged(httpUrl);
+            });
 
     setState(Initializing);
 }

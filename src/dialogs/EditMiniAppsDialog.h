@@ -23,6 +23,7 @@ class QPlainTextEdit;
 class QPushButton;
 class QSpinBox;
 class QTimer;
+class QToolButton;
 
 class EditMiniAppsDialog : public QDialog
 {
@@ -41,6 +42,7 @@ private slots:
     void onMoveDownClicked();
     void onBrowseCwdClicked();
     void onScopeChanged(int index);
+    void onRandomPortClicked();
     void validateFields();
 
 private:
@@ -76,6 +78,12 @@ private:
     QGroupBox *m_advancedGroup = nullptr;
     QLineEdit *m_healthUrlEdit = nullptr;
     QSpinBox *m_timeoutSpin = nullptr;
+
+    // Debug section
+    QGroupBox *m_debugGroup = nullptr;
+    QSpinBox *m_debugPortSpin = nullptr;
+    QPushButton *m_randomPortBtn = nullptr;
+    QLabel *m_portWarningLabel = nullptr;
 
     QLabel *m_urlWarningLabel = nullptr;
     QDialogButtonBox *m_buttonBox = nullptr;

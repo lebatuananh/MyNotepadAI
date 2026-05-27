@@ -16,10 +16,14 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QSet>
 #include <QSpinBox>
 #include <QSplitter>
+#include <QTcpSocket>
+#include <QHostAddress>
 #include <QTimer>
 #include <QUuid>
 #include <QVBoxLayout>
@@ -134,6 +138,28 @@ EditMiniAppsDialog::EditMiniAppsDialog(MiniAppRegistry *registry,
     advLayout->addWidget(m_timeoutSpin);
     formLayout->addWidget(m_advancedGroup);
 
+    // Debug section (collapsible)
+    m_debugGroup = new QGroupBox(tr("Debug"), rightWidget);
+    m_debugGroup->setCheckable(true);
+    m_debugGroup->setChecked(false);
+    auto *debugLayout = new QVBoxLayout(m_debugGroup);
+    debugLayout->addWidget(new QLabel(tr("CDP Debug Port:"), m_debugGroup));
+    auto *portLayout = new QHBoxLayout;
+    m_debugPortSpin = new QSpinBox(m_debugGroup);
+    m_debugPortSpin->setRange(0, 65535);
+    m_debugPortSpin->setSpecialValueText(tr("Disabled"));
+    m_debugPortSpin->setToolTip(tr("0 = disabled. Set a port to enable Chrome DevTools Protocol debugging."));
+    portLayout->addWidget(m_debugPortSpin, 1);
+    m_randomPortBtn = new QPushButton(tr("Random"), m_debugGroup);
+    m_randomPortBtn->setToolTip(tr("Find an available port in range 9222-9322"));
+    portLayout->addWidget(m_randomPortBtn);
+    debugLayout->addLayout(portLayout);
+    m_portWarningLabel = new QLabel(m_debugGroup);
+    m_portWarningLabel->setStyleSheet(QStringLiteral("color: orange; font-size: 10px;"));
+    m_portWarningLabel->hide();
+    debugLayout->addWidget(m_portWarningLabel);
+    formLayout->addWidget(m_debugGroup);
+
     formLayout->addStretch();
 
     splitter->addWidget(leftWidget);
@@ -158,10 +184,12 @@ EditMiniAppsDialog::EditMiniAppsDialog(MiniAppRegistry *registry,
     connect(m_upBtn, &QPushButton::clicked, this, &EditMiniAppsDialog::onMoveUpClicked);
     connect(m_downBtn, &QPushButton::clicked, this, &EditMiniAppsDialog::onMoveDownClicked);
     connect(m_browseCwdBtn, &QPushButton::clicked, this, &EditMiniAppsDialog::onBrowseCwdClicked);
+    connect(m_randomPortBtn, &QPushButton::clicked, this, &EditMiniAppsDialog::onRandomPortClicked);
     connect(m_scopeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &EditMiniAppsDialog::onScopeChanged);
     connect(m_urlEdit, &QLineEdit::textChanged, this, [this]() { m_validateTimer->start(); });
     connect(m_envEdit, &QPlainTextEdit::textChanged, this, [this]() { m_validateTimer->start(); });
+    connect(m_debugPortSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this]() { m_validateTimer->start(); });
 
     connect(m_buttonBox, &QDialogButtonBox::accepted, this, [this]() {
         commitCurrentApp();
@@ -248,6 +276,7 @@ void EditMiniAppsDialog::commitCurrentApp()
     def.env = m_envEdit->toPlainText();
     def.healthCheckUrl = m_healthUrlEdit->text().trimmed();
     def.healthTimeoutMs = m_timeoutSpin->value() * 1000;
+    def.debugPort = m_debugGroup->isChecked() ? m_debugPortSpin->value() : 0;
 
     // Ensure ID
     if (def.id.isEmpty())
@@ -271,6 +300,8 @@ void EditMiniAppsDialog::loadApp(int row)
     m_envEdit->setEnabled(valid);
     m_healthUrlEdit->setEnabled(valid);
     m_timeoutSpin->setEnabled(valid);
+    m_debugPortSpin->setEnabled(valid);
+    m_randomPortBtn->setEnabled(valid);
 
     if (!valid) {
         m_nameEdit->clear();
@@ -280,8 +311,10 @@ void EditMiniAppsDialog::loadApp(int row)
         m_envEdit->clear();
         m_healthUrlEdit->clear();
         m_timeoutSpin->setValue(30);
+        m_debugPortSpin->setValue(0);
         m_urlWarningLabel->hide();
         m_envWarningLabel->hide();
+        m_portWarningLabel->hide();
         return;
     }
 
@@ -293,7 +326,10 @@ void EditMiniAppsDialog::loadApp(int row)
     m_envEdit->setPlainText(def.env);
     m_healthUrlEdit->setText(def.healthCheckUrl);
     m_timeoutSpin->setValue(def.healthTimeoutMs / 1000);
+    m_debugPortSpin->setValue(def.debugPort);
+    m_debugGroup->setChecked(def.debugPort > 0);
     m_urlWarningLabel->hide();
+    m_portWarningLabel->hide();
     validateFields();
 }
 
@@ -372,6 +408,26 @@ void EditMiniAppsDialog::validateFields()
         m_urlWarningLabel->hide();
     }
 
+    // Debug port conflict validation
+    const int port = m_debugPortSpin->value();
+    if (port > 0 && m_currentRow >= 0) {
+        bool conflict = false;
+        for (int i = 0; i < m_apps.size(); ++i) {
+            if (i == m_currentRow) continue;
+            if (m_apps[i].debugPort == port) {
+                m_portWarningLabel->setText(tr("Port %1 is already used by \"%2\"")
+                    .arg(port).arg(m_apps[i].name));
+                m_portWarningLabel->show();
+                conflict = true;
+                break;
+            }
+        }
+        if (!conflict)
+            m_portWarningLabel->hide();
+    } else {
+        m_portWarningLabel->hide();
+    }
+
     // Env validation (same as EditTasksDialog)
     const QString envText = m_envEdit->toPlainText();
     if (envText.trimmed().isEmpty()) {
@@ -404,4 +460,33 @@ void EditMiniAppsDialog::updateButtonStates()
     m_removeBtn->setEnabled(row >= 0);
     m_upBtn->setEnabled(row > 0);
     m_downBtn->setEnabled(row >= 0 && row < count - 1);
+}
+
+void EditMiniAppsDialog::onRandomPortClicked()
+{
+    // Collect ports already assigned to other apps in the list
+    QSet<int> usedPorts;
+    for (int i = 0; i < m_apps.size(); ++i) {
+        if (i == m_currentRow) continue;
+        if (m_apps[i].debugPort > 0)
+            usedPorts.insert(m_apps[i].debugPort);
+    }
+
+    // Scan 9222-9322 for an available port
+    for (int port = 9222; port <= 9322; ++port) {
+        if (usedPorts.contains(port))
+            continue;
+
+        // Bind-test: check if port is actually free on the system
+        QTcpSocket sock;
+        if (sock.bind(QHostAddress::LocalHost, static_cast<quint16>(port))) {
+            sock.close();
+            m_debugPortSpin->setValue(port);
+            return;
+        }
+    }
+
+    // All ports exhausted
+    QMessageBox::warning(this, tr("No Available Port"),
+        tr("No available port in range 9222-9322. Please enter a port manually."));
 }

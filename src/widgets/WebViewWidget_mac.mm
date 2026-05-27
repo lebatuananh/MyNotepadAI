@@ -135,7 +135,7 @@ private:
 @end
 
 // Factory: macOS implementation
-WebViewWidget *WebViewWidget::create(const QString &appId, const QUrl &url, QWidget *parent)
+WebViewWidget *WebViewWidget::create(const QString &appId, const QUrl &url, int /*debugPort*/, QWidget *parent)
 {
     return new WebViewWidgetMac(appId, url, parent);
 }

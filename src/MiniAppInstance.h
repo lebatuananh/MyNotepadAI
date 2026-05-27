@@ -20,6 +20,7 @@
 
 class QNetworkAccessManager;
 class QNetworkReply;
+class QTcpSocket;
 class WebViewWidget;
 
 class MiniAppInstance : public QObject
@@ -49,6 +50,9 @@ public:
     const MiniAppDefinition &definition() const { return m_def; }
     QString debugInfo() const;
 
+    QString cdpHttpUrl() const { return m_cdpHttpUrl; }
+    QString cdpWsUrl() const { return m_cdpWsUrl; }
+
     WebViewWidget *webViewWidget() const { return m_webView; }
     void setDockWidget(ads::CDockWidget *dw) { m_dockWidget = dw; }
     ads::CDockWidget *dockWidget() const { return m_dockWidget; }
@@ -60,6 +64,7 @@ public:
 signals:
     void stateChanged(MiniAppInstance::State newState);
     void titleChanged(const QString &title);
+    void cdpUrlChanged(const QString &httpUrl);
     void finished();
 
 private slots:
@@ -86,5 +91,7 @@ private:
     WebViewWidget *m_webView = nullptr;
     QPointer<ads::CDockWidget> m_dockWidget;
     QString m_lastError;
+    QString m_cdpHttpUrl;
+    QString m_cdpWsUrl;
 };
 

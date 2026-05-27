@@ -7,8 +7,11 @@
 
 #include "WebViewWidget.h"
 
+#include <QApplication>
+#include <QClipboard>
 #include <QFontMetrics>
 #include <QStyle>
+#include <QTimer>
 
 WebViewWidget::WebViewWidget(const QString &appId, const QUrl &url, QWidget *parent)
     : QWidget(parent)
@@ -58,6 +61,26 @@ void WebViewWidget::setupToolbar()
     connect(m_stopBtn, &QToolButton::clicked, this, &WebViewWidget::stop);
     m_toolbarLayout->addWidget(m_stopBtn);
 
+    m_cdpBtn = new QToolButton(toolbarWidget);
+    m_cdpBtn->setAutoRaise(true);
+    m_cdpBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    m_cdpBtn->setToolTip(tr("Click to copy CDP URL to clipboard"));
+    QFont cdpFont = m_cdpBtn->font();
+    cdpFont.setPointSize(cdpFont.pointSize() - 1);
+    m_cdpBtn->setFont(cdpFont);
+    m_cdpBtn->hide(); // Hidden until CDP is ready
+    connect(m_cdpBtn, &QToolButton::clicked, this, [this]() {
+        if (m_cdpHttpUrl.isEmpty()) return;
+        QApplication::clipboard()->setText(m_cdpHttpUrl);
+        const QString original = m_cdpBtn->text();
+        m_cdpBtn->setText(tr("Copied!"));
+        QTimer::singleShot(1500, this, [this, original]() {
+            if (m_cdpBtn)
+                m_cdpBtn->setText(original);
+        });
+    });
+    m_toolbarLayout->addWidget(m_cdpBtn);
+
     m_mainLayout->addWidget(toolbarWidget);
 }
 
@@ -68,10 +91,29 @@ void WebViewWidget::setLoading(bool loading)
     emit loadingStateChanged(loading);
 }
 
+void WebViewWidget::showCdpUrl(const QString &httpUrl)
+{
+    m_cdpHttpUrl = httpUrl;
+    QUrl u(httpUrl);
+    m_cdpDisplayText = QStringLiteral("CDP: %1:%2").arg(u.host()).arg(u.port());
+    if (m_cdpBtn) {
+        m_cdpBtn->setText(m_cdpDisplayText);
+        m_cdpBtn->show();
+    }
+}
+
+void WebViewWidget::hideCdpUrl()
+{
+    m_cdpHttpUrl.clear();
+    m_cdpDisplayText.clear();
+    if (m_cdpBtn)
+        m_cdpBtn->hide();
+}
+
 // Factory implementation — returns nullptr on unsupported platforms.
 // Platform-specific create() is defined in WebViewWidget_win.cpp / _mac.mm.
 #if !defined(Q_OS_WIN) && !defined(Q_OS_MACOS)
-WebViewWidget *WebViewWidget::create(const QString & /*appId*/, const QUrl & /*url*/, QWidget * /*parent*/)
+WebViewWidget *WebViewWidget::create(const QString & /*appId*/, const QUrl & /*url*/, int /*debugPort*/, QWidget * /*parent*/)
 {
     return nullptr; // Linux: no embedded webview, use xdg-open
 }

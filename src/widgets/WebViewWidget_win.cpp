@@ -9,7 +9,13 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QStandardPaths>
+#include <QTimer>
 #include <QUrl>
 #include <QWindow>
 
@@ -43,8 +49,9 @@ class WebViewWidgetWin : public WebViewWidget
 {
 
 public:
-    WebViewWidgetWin(const QString &appId, const QUrl &url, QWidget *parent)
+    WebViewWidgetWin(const QString &appId, const QUrl &url, int debugPort, QWidget *parent)
         : WebViewWidget(appId, url, parent)
+        , m_debugPort(debugPort)
     {
         m_hostWidget = new QWidget(this);
         m_hostWidget->setAttribute(Qt::WA_NativeWindow);
@@ -112,6 +119,16 @@ public:
     {
         m_alive->store(false, std::memory_order_release);
 
+        if (m_cdpPollTimer) {
+            m_cdpPollTimer->stop();
+            m_cdpPollTimer->deleteLater();
+            m_cdpPollTimer = nullptr;
+        }
+        if (m_cdpNam) {
+            m_cdpNam->deleteLater();
+            m_cdpNam = nullptr;
+        }
+
         if (m_controller) {
             m_controller->Close();
             m_controller->Release();
@@ -125,6 +142,7 @@ public:
             m_environment->Release();
             m_environment = nullptr;
         }
+        hideCdpUrl();
     }
 
 protected:
@@ -155,11 +173,33 @@ private:
             return;
         }
 
+        // Pass debug port via environment variable — more reliable than COM options
+        // object across different WebView2 runtime versions. The runtime reads this
+        // env var synchronously during CreateCoreWebView2EnvironmentWithOptions.
+        QByteArray prevEnv;
+        bool hadEnv = false;
+        if (m_debugPort > 0) {
+            const QByteArray envName = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
+            prevEnv = qgetenv(envName.constData());
+            hadEnv = !prevEnv.isNull();
+            qputenv(envName.constData(),
+                    QStringLiteral("--remote-debugging-port=%1").arg(m_debugPort).toUtf8());
+        }
+
         HRESULT hr = createEnv(
             nullptr,
             m_dbgUserDataFolder.toStdWString().c_str(),
             nullptr,
             new EnvironmentCompletedHandler(this));
+
+        // Restore environment immediately — the runtime has already read it
+        if (m_debugPort > 0) {
+            const QByteArray envName = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
+            if (hadEnv)
+                qputenv(envName.constData(), prevEnv);
+            else
+                qunsetenv(envName.constData());
+        }
 
         m_dbgCreateEnvHr = hr;
         if (FAILED(hr)) {
@@ -178,6 +218,10 @@ private:
         }
         m_environment = env;
         m_environment->AddRef();
+
+        // Start CDP discovery polling if debug port is configured
+        if (m_debugPort > 0)
+            startCdpDiscovery();
 
         env->CreateCoreWebView2Controller(
             m_hwnd,
@@ -338,6 +382,50 @@ private:
         }
     };
 
+    // --- CDP Discovery ---
+
+    void startCdpDiscovery()
+    {
+        m_cdpNam = new QNetworkAccessManager(this);
+        m_cdpPollCount = 0;
+        m_cdpPollTimer = new QTimer(this);
+        m_cdpPollTimer->setInterval(100);
+        connect(m_cdpPollTimer, &QTimer::timeout, this, [this]() { onCdpPollTick(); });
+        m_cdpPollTimer->start();
+    }
+
+    void onCdpPollTick()
+    {
+        if (++m_cdpPollCount > 50) {
+            // Timeout: 50 * 100ms = 5 seconds
+            m_cdpPollTimer->stop();
+            qWarning("WebViewWidgetWin: CDP discovery timed out on port %d", m_debugPort);
+            return;
+        }
+
+        const QString url = QStringLiteral("http://127.0.0.1:%1/json/version").arg(m_debugPort);
+        QNetworkRequest req{QUrl(url)};
+        req.setTransferTimeout(500);
+        QNetworkReply *reply = m_cdpNam->get(req);
+        connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+            reply->deleteLater();
+            if (!m_cdpPollTimer || !m_cdpPollTimer->isActive())
+                return;
+
+            const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            if (status == 200) {
+                m_cdpPollTimer->stop();
+                const QByteArray body = reply->readAll();
+                const QJsonDocument doc = QJsonDocument::fromJson(body);
+                const QString wsUrl = doc.object().value(QStringLiteral("webSocketDebuggerUrl")).toString();
+                const QString httpUrl = QStringLiteral("http://127.0.0.1:%1").arg(m_debugPort);
+                showCdpUrl(httpUrl);
+                emit cdpReady(httpUrl, wsUrl);
+            }
+            // else: keep polling on next timer tick
+        });
+    }
+
     QWidget *m_hostWidget = nullptr;
     HWND m_hwnd = nullptr;
     bool m_initStarted = false;
@@ -359,10 +447,16 @@ private:
     HRESULT m_dbgEnvCallbackHr = S_OK;
     HRESULT m_dbgCtrlCallbackHr = S_OK;
     QString m_dbgUserDataFolder;
+
+    // CDP debug port
+    int m_debugPort = 0;
+    QNetworkAccessManager *m_cdpNam = nullptr;
+    QTimer *m_cdpPollTimer = nullptr;
+    int m_cdpPollCount = 0;
 };
 
 // Factory: Windows implementation
-WebViewWidget *WebViewWidget::create(const QString &appId, const QUrl &url, QWidget *parent)
+WebViewWidget *WebViewWidget::create(const QString &appId, const QUrl &url, int debugPort, QWidget *parent)
 {
-    return new WebViewWidgetWin(appId, url, parent);
+    return new WebViewWidgetWin(appId, url, debugPort, parent);
 }

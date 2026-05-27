@@ -12,6 +12,8 @@
 #include "NotepadNextApplication.h"
 #include "WebViewWidget.h"
 
+#include <QApplication>
+#include <QClipboard>
 #include <QDesktopServices>
 #include <QDialog>
 #include <QFont>
@@ -140,6 +142,12 @@ void MiniAppManager::launchApp(const MiniAppDefinition &def)
             layout->addWidget(text);
             dlg.exec();
         });
+        if (instance->definition().debugPort > 0) {
+            QAction *cdpAction = menu.addAction(tr("Copy CDP URL"), this, [instance]() {
+                QApplication::clipboard()->setText(instance->cdpHttpUrl());
+            });
+            cdpAction->setEnabled(!instance->cdpHttpUrl().isEmpty());
+        }
         menu.addSeparator();
         menu.addAction(tr("Retry"), instance, &MiniAppInstance::retry);
         menu.addAction(tr("Close"), dw, &ads::CDockWidget::closeDockWidget);

@@ -34,12 +34,21 @@ public:
 
     // Factory: creates the platform-appropriate subclass.
     // Returns nullptr on Linux (caller should use xdg-open fallback).
-    static WebViewWidget *create(const QString &appId, const QUrl &url, QWidget *parent = nullptr);
+    static WebViewWidget *create(const QString &appId, const QUrl &url, int debugPort = 0, QWidget *parent = nullptr);
+
+    // CDP URL accessors
+    QString cdpHttpUrl() const { return m_cdpHttpUrl; }
+    QString cdpDisplayText() const { return m_cdpDisplayText; }
 
 signals:
     void navigationCompleted(bool success, const QString &error);
     void processFailed(const QString &description);
     void loadingStateChanged(bool loading);
+    void cdpReady(const QString &httpUrl, const QString &wsUrl);
+
+public:
+    void showCdpUrl(const QString &httpUrl);
+    void hideCdpUrl();
 
 protected:
     // Subclasses add their native view below the toolbar.
@@ -59,4 +68,7 @@ private:
     QToolButton *m_reloadBtn = nullptr;
     QLabel *m_urlLabel = nullptr;
     QToolButton *m_stopBtn = nullptr;
+    QToolButton *m_cdpBtn = nullptr;
+    QString m_cdpHttpUrl;
+    QString m_cdpDisplayText;
 };

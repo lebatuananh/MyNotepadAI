@@ -150,8 +150,8 @@ void MiniAppManager::launchApp(const MiniAppDefinition &def)
             if (aiDock && !instance->cdpHttpUrl().isEmpty()) {
                 menu.addAction(tr("Send to AI"), this, [instance, aiDock]() {
                     const QString msg = QStringLiteral(
-                        "Connect to the browser via CDP at %1 "
-                        "(use the existing tab, do not create new tabs). ")
+                        "{{ Connect to the browser via CDP at %1 "
+                        "(list available pages first, then interact only with the existing page — do not create new pages). }}\n\n")
                         .arg(instance->cdpHttpUrl());
                     aiDock->insertTextToInput(msg);
                     aiDock->setVisible(true);

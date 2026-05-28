@@ -25,10 +25,8 @@
 
 class AcpAgentRegistry;
 class ApplicationSettings;
-class GoalConfigWidget;
 class QCheckBox;
 class QComboBox;
-class QGroupBox;
 class QLabel;
 class QLineEdit;
 class QPlainTextEdit;
@@ -82,8 +80,8 @@ private:
 
     // Goal section
     QCheckBox *m_goalCheck;
-    QGroupBox *m_goalGroup;
-    GoalConfigWidget *m_goalConfig;
+    QPushButton *m_goalConfigBtn;
+    ScheduledTaskGoalConfig m_goalConfigData;
 
     QPushButton *m_saveBtn;
 };

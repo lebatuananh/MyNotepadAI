@@ -24,7 +24,6 @@
 #include <QDir>
 #include <QFileDialog>
 #include <QFormLayout>
-#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QLabel>
@@ -40,7 +39,7 @@
 #include "AcpAgentRegistry.h"
 #include "ApplicationSettings.h"
 #include "CronExpression.h"
-#include "GoalConfigWidget.h"
+#include "GoalAgentConfigDialog.h"
 #include "NotepadNextApplication.h"
 #include "ai/CredentialStore.h"
 #include "ai/LlmHttpClient.h"
@@ -56,7 +55,7 @@ EditScheduledTaskDialog::EditScheduledTaskDialog(const ScheduledTaskDefinition &
     , m_original(def)
 {
     setWindowTitle(def.id.isEmpty() ? tr("Add Scheduled Task") : tr("Edit Scheduled Task"));
-    resize(520, 700);
+    resize(520, 480);
 
     auto *mainLayout = new QVBoxLayout(this);
     auto *form = new QFormLayout();
@@ -131,27 +130,25 @@ EditScheduledTaskDialog::EditScheduledTaskDialog(const ScheduledTaskDefinition &
     mainLayout->addLayout(form);
 
     // Goal section
+    auto *goalRow = new QHBoxLayout();
     m_goalCheck = new QCheckBox(tr("Enable Goal Agent evaluation"), this);
     m_goalCheck->setChecked(def.hasGoalConfig);
-    mainLayout->addWidget(m_goalCheck);
+    goalRow->addWidget(m_goalCheck);
+    m_goalConfigBtn = new QPushButton(tr("Configure..."), this);
+    m_goalConfigBtn->setEnabled(def.hasGoalConfig);
+    goalRow->addWidget(m_goalConfigBtn);
+    goalRow->addStretch();
+    mainLayout->addLayout(goalRow);
 
-    m_goalGroup = new QGroupBox(tr("Goal Configuration"), this);
-    auto *goalGroupLayout = new QVBoxLayout(m_goalGroup);
-    goalGroupLayout->setContentsMargins(6, 6, 6, 6);
-    m_goalConfig = new GoalConfigWidget(agentRegistry, settings, m_goalGroup);
-    goalGroupLayout->addWidget(m_goalConfig);
+    if (def.hasGoalConfig)
+        m_goalConfigData = def.goalConfig;
 
-    if (def.hasGoalConfig) {
-        m_goalConfig->setCriteria(def.goalConfig.criteriaList);
-        m_goalConfig->setAgentId(def.goalConfig.agentId);
-        m_goalConfig->setMaxIterations(def.goalConfig.maxIterations);
-        if (!def.goalConfig.promptTemplateId.isEmpty())
-            m_goalConfig->setPromptTemplateId(def.goalConfig.promptTemplateId);
-    }
-
-    mainLayout->addWidget(m_goalGroup);
-    m_goalGroup->setVisible(def.hasGoalConfig);
-    connect(m_goalCheck, &QCheckBox::toggled, m_goalGroup, &QGroupBox::setVisible);
+    connect(m_goalCheck, &QCheckBox::toggled, m_goalConfigBtn, &QPushButton::setEnabled);
+    connect(m_goalConfigBtn, &QPushButton::clicked, this, [this]() {
+        GoalAgentConfigDialog dlg(m_goalConfigData, m_agentRegistry, m_settings, this);
+        if (dlg.exec() == QDialog::Accepted)
+            m_goalConfigData = dlg.goalConfig();
+    });
 
     // Buttons
     auto *btnLayout = new QHBoxLayout();
@@ -247,11 +244,7 @@ ScheduledTaskDefinition EditScheduledTaskDialog::taskResult() const
 
     def.hasGoalConfig = m_goalCheck->isChecked();
     if (def.hasGoalConfig) {
-        const GoalConfigResult gcr = m_goalConfig->result();
-        def.goalConfig.criteriaList = gcr.criteriaList;
-        def.goalConfig.agentId = gcr.agentId;
-        def.goalConfig.maxIterations = gcr.maxIterations;
-        def.goalConfig.promptTemplateId = gcr.promptTemplateId;
+        def.goalConfig = m_goalConfigData;
     } else {
         def.goalConfig = ScheduledTaskGoalConfig{};
     }
@@ -315,11 +308,16 @@ void EditScheduledTaskDialog::onCronHelperClicked()
     req.maxTokens = 50;
     req.idleTimeoutSec = 30;
 
+    m_cronHelperBtn->setEnabled(false);
+    m_cronHelperBtn->setText(tr("..."));
+
     auto *accumulated = new QString();
     connect(client, &ai::ILlmHttpClient::tokenReceived, this, [accumulated](const QString &token) {
         *accumulated += token;
     });
     connect(client, &ai::ILlmHttpClient::streamEnded, this, [this, client, accumulated]() {
+        m_cronHelperBtn->setEnabled(true);
+        m_cronHelperBtn->setText(tr("AI"));
         const QString cronExpr = accumulated->trimmed();
         auto parsed = CronExpression::parse(cronExpr);
         if (parsed && parsed->isValid()) {
@@ -332,6 +330,8 @@ void EditScheduledTaskDialog::onCronHelperClicked()
         client->deleteLater();
     });
     connect(client, &ai::ILlmHttpClient::errorOccurred, this, [this, client, accumulated](int, const QString &msg) {
+        m_cronHelperBtn->setEnabled(true);
+        m_cronHelperBtn->setText(tr("AI"));
         QMessageBox::warning(this, tr("AI Error"), msg);
         delete accumulated;
         client->deleteLater();

@@ -53,7 +53,10 @@ ScheduledTaskDialog::ScheduledTaskDialog(ScheduledTaskRegistry *registry,
     m_table = new QTableWidget(this);
     m_table->setColumnCount(4);
     m_table->setHorizontalHeaderLabels({tr("Enabled"), tr("Name"), tr("Cron"), tr("Next Fire")});
-    m_table->horizontalHeader()->setStretchLastSection(true);
+    m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+    m_table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setSelectionMode(QAbstractItemView::SingleSelection);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -198,6 +201,4 @@ void ScheduledTaskDialog::refreshTable()
         }
         m_table->setItem(i, 3, new QTableWidgetItem(nextStr));
     }
-
-    m_table->resizeColumnsToContents();
 }

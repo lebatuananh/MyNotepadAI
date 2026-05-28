@@ -202,6 +202,8 @@ qt_add_executable(NotepadAI
 	dialogs/ScheduledTaskDialog.h
 	dialogs/EditScheduledTaskDialog.cpp
 	dialogs/EditScheduledTaskDialog.h
+	dialogs/GoalAgentConfigDialog.cpp
+	dialogs/GoalAgentConfigDialog.h
 	dialogs/EditTasksDialog.cpp
 	dialogs/EditTasksDialog.h
 	dialogs/EditMiniAppsDialog.cpp

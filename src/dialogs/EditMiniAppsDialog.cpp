@@ -304,13 +304,13 @@ void EditMiniAppsDialog::commitCurrentApp()
     def.command = m_commandEdit->text().trimmed();
     def.cwd = m_cwdEdit->text().trimmed();
     def.env = m_envEdit->toPlainText();
-    def.healthCheckUrl = m_healthUrlEdit->text().trimmed();
-    def.healthTimeoutMs = m_timeoutSpin->value() * 1000;
+    def.healthCheckUrl = m_advancedGroup->isChecked() ? m_healthUrlEdit->text().trimmed() : QString();
+    def.healthTimeoutMs = m_advancedGroup->isChecked() ? m_timeoutSpin->value() * 1000 : 30000;
     def.debugPort = m_debugGroup->isChecked() ? m_debugPortSpin->value() : 0;
     def.proxyType = m_proxyGroup->isChecked() ? m_proxyTypeCombo->currentData().toInt() : 0;
-    def.proxyHost = m_proxyHostEdit->text().trimmed();
-    def.proxyPort = m_proxyPortSpin->value();
-    def.proxyBypassList = m_proxyBypassEdit->text().trimmed();
+    def.proxyHost = m_proxyGroup->isChecked() ? m_proxyHostEdit->text().trimmed() : QString();
+    def.proxyPort = m_proxyGroup->isChecked() ? m_proxyPortSpin->value() : 0;
+    def.proxyBypassList = m_proxyGroup->isChecked() ? m_proxyBypassEdit->text().trimmed() : QString();
 
     // Ensure ID
     if (def.id.isEmpty())
@@ -366,6 +366,7 @@ void EditMiniAppsDialog::loadApp(int row)
     m_envEdit->setPlainText(def.env);
     m_healthUrlEdit->setText(def.healthCheckUrl);
     m_timeoutSpin->setValue(def.healthTimeoutMs / 1000);
+    m_advancedGroup->setChecked(!def.healthCheckUrl.isEmpty() || def.healthTimeoutMs != 30000);
     m_debugPortSpin->setValue(def.debugPort);
     m_debugGroup->setChecked(def.debugPort > 0);
     m_proxyGroup->setChecked(def.proxyType > 0);

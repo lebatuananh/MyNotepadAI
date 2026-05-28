@@ -191,14 +191,20 @@ void WebViewWidget::setupToolbar()
         m_copilotRetryTimer->stop();
         m_aiStopBtn->hide();
         if (m_aiBtn) m_aiBtn->setStyleSheet(QString());
-        if (m_aiBlinkTimer) m_aiBlinkTimer->start();
+        if (m_aiBlinkTimer) {
+            m_aiBlinkTimer->start();
+            QTimer::singleShot(5000, this, [this]() {
+                if (m_aiBlinkTimer) m_aiBlinkTimer->stop();
+                if (m_aiBtn) m_aiBtn->setStyleSheet(QString());
+            });
+        }
         emit copilotResult(false, tr("Stopped by user"));
     });
     m_toolbarLayout->addWidget(m_aiStopBtn);
 
-    // Blink animation for AI button
+    // Blink animation for AI button — short attention pulse, not permanent
     m_aiBlinkTimer = new QTimer(this);
-    m_aiBlinkTimer->setInterval(800);
+    m_aiBlinkTimer->setInterval(400);
     bool *blinkState = new bool(false);
     connect(m_aiBlinkTimer, &QTimer::timeout, this, [this, blinkState]() {
         *blinkState = !*blinkState;
@@ -209,6 +215,10 @@ void WebViewWidget::setupToolbar()
     });
     connect(m_aiBtn, &QObject::destroyed, this, [blinkState]() { delete blinkState; });
     m_aiBlinkTimer->start();
+    QTimer::singleShot(5000, this, [this]() {
+        if (m_aiBlinkTimer) m_aiBlinkTimer->stop();
+        if (m_aiBtn) m_aiBtn->setStyleSheet(QString());
+    });
 
     m_urlEdit = new QLineEdit(toolbarWidget);
     m_urlEdit->setText(m_url.toString());
@@ -545,9 +555,15 @@ void WebViewWidget::handleCopilotMessage(const QString &json)
     m_copilotRetryTimer->stop();
     if (m_aiStopBtn) m_aiStopBtn->hide();
 
-    // Restore blink
+    // Restore blink briefly
     if (m_aiBtn) m_aiBtn->setStyleSheet(QString());
-    if (m_aiBlinkTimer) m_aiBlinkTimer->start();
+    if (m_aiBlinkTimer) {
+        m_aiBlinkTimer->start();
+        QTimer::singleShot(5000, this, [this]() {
+            if (m_aiBlinkTimer) m_aiBlinkTimer->stop();
+            if (m_aiBtn) m_aiBtn->setStyleSheet(QString());
+        });
+    }
 
     const bool success = obj.value(QStringLiteral("success")).toBool();
     const QString data = obj.value(QStringLiteral("data")).toString();

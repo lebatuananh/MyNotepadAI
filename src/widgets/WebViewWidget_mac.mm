@@ -33,14 +33,18 @@ class WebViewWidgetMac : public WebViewWidget
     Q_OBJECT
 
 public:
-    WebViewWidgetMac(const QString &appId, const QUrl &url, QWidget *parent)
+    WebViewWidgetMac(const QString &appId, const QUrl &url, QWidget *parent, const QString &userDataFolder)
         : WebViewWidget(appId, url, parent)
     {
         @autoreleasepool {
             WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];
 
-            // Tiered data persistence: macOS 14+ uses per-app isolated store.
-            if (@available(macOS 14.0, *)) {
+            // Quick Browser passes a userDataFolder. WKWebView cannot choose an
+            // arbitrary profile directory, so use the app's persistent default
+            // store there instead of a fresh UUID-backed store per tab.
+            if (!userDataFolder.isEmpty()) {
+                config.websiteDataStore = [WKWebsiteDataStore defaultDataStore];
+            } else if (@available(macOS 14.0, *)) {
                 QUuid ns = QUuid::fromString(QStringLiteral("{6ba7b810-9dad-11d1-80b4-00c04fd430c8}"));
                 QUuid storeId = QUuid::createUuidV5(ns, appId);
                 NSUUID *nsUuid = [[NSUUID alloc] initWithUUIDString:storeId.toString(QUuid::WithoutBraces).toNSString()];
@@ -64,6 +68,8 @@ public:
 
             NSRect frame = NSMakeRect(0, 0, 400, 300);
             m_webView = [[WKWebView alloc] initWithFrame:frame configuration:config];
+            m_webView.customUserAgent = @"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15";
 
             m_navDelegate = [[MiniAppNavDelegate alloc] init];
             m_navDelegate.owner = this;
@@ -123,7 +129,7 @@ public:
 
     QString nativePostMessage() const override
     {
-        return QStringLiteral("window.webkit.messageHandlers.pageAgent.postMessage");
+        return QStringLiteral("(function(msg){ window.webkit.messageHandlers.pageAgent.postMessage(msg); })");
     }
 
     void destroy() override
@@ -212,12 +218,12 @@ private:
 
 // Factory: macOS implementation
 WebViewWidget *WebViewWidget::create(const QString &appId, const QUrl &url, int /*debugPort*/,
-                                     QWidget *parent, const QString &/*userDataFolder*/,
+                                     QWidget *parent, const QString &userDataFolder,
                                      int /*proxyType*/, const QString &/*proxyHost*/,
                                      int /*proxyPort*/, const QString &/*proxyBypassList*/,
                                      bool /*allowCrossOrigin*/)
 {
-    return new WebViewWidgetMac(appId, url, parent);
+    return new WebViewWidgetMac(appId, url, parent, userDataFolder);
 }
 
 #include "WebViewWidget_mac.moc"

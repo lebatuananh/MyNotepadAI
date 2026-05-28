@@ -7,6 +7,7 @@
 
 #include "EditMiniAppsDialog.h"
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDir>
@@ -161,6 +162,13 @@ EditMiniAppsDialog::EditMiniAppsDialog(MiniAppRegistry *registry,
     debugLayout->addWidget(m_portWarningLabel);
     formLayout->addWidget(m_debugGroup);
 
+    // Cross-origin access checkbox
+    m_crossOriginCheck = new QCheckBox(tr("Allow cross-origin iframe access (better automation, less security)"), rightWidget);
+    m_crossOriginCheck->setToolTip(
+        tr("Disables browser sandbox isolation so scripts can access cross-origin iframe content.\n"
+           "Improves automation coverage but reduces security."));
+    formLayout->addWidget(m_crossOriginCheck);
+
     // Proxy section (collapsible)
     m_proxyGroup = new QGroupBox(tr("Proxy"), rightWidget);
     m_proxyGroup->setCheckable(true);
@@ -311,6 +319,7 @@ void EditMiniAppsDialog::commitCurrentApp()
     def.proxyHost = m_proxyGroup->isChecked() ? m_proxyHostEdit->text().trimmed() : QString();
     def.proxyPort = m_proxyGroup->isChecked() ? m_proxyPortSpin->value() : 0;
     def.proxyBypassList = m_proxyGroup->isChecked() ? m_proxyBypassEdit->text().trimmed() : QString();
+    def.allowCrossOrigin = m_crossOriginCheck->isChecked();
 
     // Ensure ID
     if (def.id.isEmpty())
@@ -336,6 +345,7 @@ void EditMiniAppsDialog::loadApp(int row)
     m_timeoutSpin->setEnabled(valid);
     m_debugPortSpin->setEnabled(valid);
     m_randomPortBtn->setEnabled(valid);
+    m_crossOriginCheck->setEnabled(valid);
 
     if (!valid) {
         m_nameEdit->clear();
@@ -351,6 +361,7 @@ void EditMiniAppsDialog::loadApp(int row)
         m_proxyHostEdit->clear();
         m_proxyPortSpin->setValue(0);
         m_proxyBypassEdit->clear();
+        m_crossOriginCheck->setChecked(false);
         m_proxyWarningLabel->hide();
         m_urlWarningLabel->hide();
         m_envWarningLabel->hide();
@@ -377,6 +388,7 @@ void EditMiniAppsDialog::loadApp(int row)
     m_proxyHostEdit->setText(def.proxyHost);
     m_proxyPortSpin->setValue(def.proxyPort);
     m_proxyBypassEdit->setText(def.proxyBypassList);
+    m_crossOriginCheck->setChecked(def.allowCrossOrigin);
     m_urlWarningLabel->hide();
     m_portWarningLabel->hide();
     validateFields();

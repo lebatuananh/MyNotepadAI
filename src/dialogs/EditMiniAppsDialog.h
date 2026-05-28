@@ -13,6 +13,7 @@
 #include <QDialog>
 #include <QList>
 
+class QCheckBox;
 class QComboBox;
 class QDialogButtonBox;
 class QGroupBox;
@@ -92,6 +93,9 @@ private:
     QSpinBox *m_proxyPortSpin = nullptr;
     QLineEdit *m_proxyBypassEdit = nullptr;
     QLabel *m_proxyWarningLabel = nullptr;
+
+    // Cross-origin
+    QCheckBox *m_crossOriginCheck = nullptr;
 
     QLabel *m_urlWarningLabel = nullptr;
     QDialogButtonBox *m_buttonBox = nullptr;

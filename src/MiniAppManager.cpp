@@ -240,7 +240,7 @@ void MiniAppManager::launchApp(const MiniAppDefinition &def)
     m_instances.append(instance);
     emit instanceCountChanged(m_instances.size());
 
-    instance->setAllowCrossOrigin(m_app->getSettings()->miniAppsCrossOriginAccess());
+    instance->setAllowCrossOrigin(def.allowCrossOrigin);
     instance->start();
 }
 

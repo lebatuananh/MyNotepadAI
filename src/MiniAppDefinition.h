@@ -26,6 +26,7 @@ struct MiniAppDefinition
     QString proxyHost;
     int proxyPort = 0;            // 0 = use scheme default
     QString proxyBypassList;
+    bool allowCrossOrigin = false;
 
     bool isValid() const { return !name.isEmpty() && !url.isEmpty(); }
 

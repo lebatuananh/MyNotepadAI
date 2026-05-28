@@ -72,6 +72,7 @@ QList<MiniAppDefinition> MiniAppRegistry::workspaceApps(const QString &workspace
         def.proxyHost = obj.value(QStringLiteral("proxyHost")).toString();
         def.proxyPort = obj.value(QStringLiteral("proxyPort")).toInt(0);
         def.proxyBypassList = obj.value(QStringLiteral("proxyBypassList")).toString();
+        def.allowCrossOrigin = obj.value(QStringLiteral("allowCrossOrigin")).toBool(false);
         if (!def.name.isEmpty())
             result.append(def);
     }
@@ -119,6 +120,7 @@ void MiniAppRegistry::setWorkspaceApps(const QString &workspacePath, const QList
             if (def.proxyPort > 0) obj.insert(QStringLiteral("proxyPort"), def.proxyPort);
             if (!def.proxyBypassList.isEmpty()) obj.insert(QStringLiteral("proxyBypassList"), def.proxyBypassList);
         }
+        if (def.allowCrossOrigin) obj.insert(QStringLiteral("allowCrossOrigin"), true);
         arr.append(obj);
     }
 
@@ -186,6 +188,7 @@ QList<MiniAppDefinition> MiniAppRegistry::parseJson(const QString &json)
         def.proxyHost = obj.value(QStringLiteral("proxyHost")).toString();
         def.proxyPort = obj.value(QStringLiteral("proxyPort")).toInt(0);
         def.proxyBypassList = obj.value(QStringLiteral("proxyBypassList")).toString();
+        def.allowCrossOrigin = obj.value(QStringLiteral("allowCrossOrigin")).toBool(false);
         if (!def.name.isEmpty())
             result.append(def);
     }
@@ -216,6 +219,7 @@ QString MiniAppRegistry::toJson(const QList<MiniAppDefinition> &apps)
             if (def.proxyPort > 0) obj.insert(QStringLiteral("proxyPort"), def.proxyPort);
             if (!def.proxyBypassList.isEmpty()) obj.insert(QStringLiteral("proxyBypassList"), def.proxyBypassList);
         }
+        if (def.allowCrossOrigin) obj.insert(QStringLiteral("allowCrossOrigin"), true);
         arr.append(obj);
     }
     return QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact));

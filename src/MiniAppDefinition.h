@@ -19,7 +19,7 @@ struct MiniAppDefinition
     QString cwd;              // Working directory (optional)
     QString icon;             // Reserved for future custom icon path
     QString healthCheckUrl;   // Health poll URL (defaults to url if empty)
-    int healthTimeoutMs = 30000; // Timeout in ms (range 5000-300000)
+    int healthTimeoutMs = 60000; // Timeout in ms (range 5000-300000)
     int debugPort = 0;           // CDP debug port (0 = disabled, 1-65535 = enabled)
     bool autoKillOnClose = true; // Kill process on tab close
     int proxyType = 0;            // 0=None, 1=HTTP, 2=HTTPS, 3=SOCKS4, 4=SOCKS5

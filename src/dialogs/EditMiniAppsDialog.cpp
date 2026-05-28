@@ -135,7 +135,7 @@ EditMiniAppsDialog::EditMiniAppsDialog(MiniAppRegistry *registry,
     m_timeoutSpin = new QSpinBox(m_advancedGroup);
     m_timeoutSpin->setRange(5, 300);
     m_timeoutSpin->setSingleStep(5);
-    m_timeoutSpin->setValue(30);
+    m_timeoutSpin->setValue(60);
     advLayout->addWidget(m_timeoutSpin);
     formLayout->addWidget(m_advancedGroup);
 
@@ -305,7 +305,7 @@ void EditMiniAppsDialog::commitCurrentApp()
     def.cwd = m_cwdEdit->text().trimmed();
     def.env = m_envEdit->toPlainText();
     def.healthCheckUrl = m_advancedGroup->isChecked() ? m_healthUrlEdit->text().trimmed() : QString();
-    def.healthTimeoutMs = m_advancedGroup->isChecked() ? m_timeoutSpin->value() * 1000 : 30000;
+    def.healthTimeoutMs = m_advancedGroup->isChecked() ? m_timeoutSpin->value() * 1000 : 60000;
     def.debugPort = m_debugGroup->isChecked() ? m_debugPortSpin->value() : 0;
     def.proxyType = m_proxyGroup->isChecked() ? m_proxyTypeCombo->currentData().toInt() : 0;
     def.proxyHost = m_proxyGroup->isChecked() ? m_proxyHostEdit->text().trimmed() : QString();
@@ -344,7 +344,7 @@ void EditMiniAppsDialog::loadApp(int row)
         m_cwdEdit->clear();
         m_envEdit->clear();
         m_healthUrlEdit->clear();
-        m_timeoutSpin->setValue(30);
+        m_timeoutSpin->setValue(60);
         m_debugPortSpin->setValue(0);
         m_proxyGroup->setChecked(false);
         m_proxyTypeCombo->setCurrentIndex(0);
@@ -366,7 +366,7 @@ void EditMiniAppsDialog::loadApp(int row)
     m_envEdit->setPlainText(def.env);
     m_healthUrlEdit->setText(def.healthCheckUrl);
     m_timeoutSpin->setValue(def.healthTimeoutMs / 1000);
-    m_advancedGroup->setChecked(!def.healthCheckUrl.isEmpty() || def.healthTimeoutMs != 30000);
+    m_advancedGroup->setChecked(!def.healthCheckUrl.isEmpty() || def.healthTimeoutMs != 60000);
     m_debugPortSpin->setValue(def.debugPort);
     m_debugGroup->setChecked(def.debugPort > 0);
     m_proxyGroup->setChecked(def.proxyType > 0);

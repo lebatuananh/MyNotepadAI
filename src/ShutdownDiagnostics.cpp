@@ -191,7 +191,7 @@ QString primaryPath()
 
 QString fallbackPath()
 {
-    const QString base = DataPaths::appDataLocation();
+    const QString &base = DataPaths::appDataLocation();
     QDir().mkpath(base);
     return QDir(base).absoluteFilePath(QStringLiteral("shutdown_report.txt"));
 }

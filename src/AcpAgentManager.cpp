@@ -165,6 +165,10 @@ void AcpAgentManager::restartSession(const QString &oldSessionId)
         qCWarning(lcAcpManager) << "restartSession: unknown id" << oldSessionId;
         return;
     }
+    // Copy required: m_sessions is re-keyed (erase + insert) further down,
+    // which invalidates `it`. We read `old` after that, so a reference into
+    // it.value() would dangle.
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
     Session old = it.value();
     if (!old.dock) {
         qCWarning(lcAcpManager) << "restartSession: dock already gone for" << oldSessionId;

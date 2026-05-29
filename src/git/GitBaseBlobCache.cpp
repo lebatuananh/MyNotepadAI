@@ -77,7 +77,7 @@ void GitBaseBlobCache::put(const QString &repoRoot, const QString &relPath, QByt
     // Replace existing entry in place: keeps hash position, just refresh
     // the blob and promote it. Saves us a remove+insert churn.
     if (const auto it = m_map.find(key); it != m_map.end()) {
-        auto listIt = it.value();
+        const auto &listIt = it.value();
         if (listIt->repoRoot == repoRoot && listIt->relPath == relPath) {
             m_bytes -= listIt->bytes;
             listIt->blob  = std::move(blob);
@@ -108,7 +108,7 @@ void GitBaseBlobCache::invalidate(const QString &repoRoot, const QString &relPat
     QMutexLocker locker(&m_mutex);
     const auto it = m_map.find(key);
     if (it == m_map.end()) return;
-    auto listIt = it.value();
+    const auto &listIt = it.value();
     if (listIt->repoRoot != repoRoot || listIt->relPath != relPath) return;
     m_bytes -= listIt->bytes;
     m_lru.erase(listIt);

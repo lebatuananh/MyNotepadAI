@@ -152,9 +152,8 @@ void GitDiffFetcher::onDiffReady(const QString &relPath, bool stagedSide, const 
             // uses origRelPath if present; otherwise both sides use relPath.
             const GitStatusEntry &entry = it->entry;
             const QString oldPath = entry.origRelPath.isEmpty() ? relPath : entry.origRelPath;
-            const QString newPath = relPath;
             const QString oldLang = app->detectLanguageFromPath(oldPath);
-            const QString newLang = app->detectLanguageFromPath(newPath);
+            const QString newLang = app->detectLanguageFromPath(relPath);
             const QString oldLex  = app->resolveLexerName(oldLang);
             const QString newLex  = app->resolveLexerName(newLang);
 

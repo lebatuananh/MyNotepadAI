@@ -108,7 +108,8 @@ QDockWidget *dockForTab(QTabBar *tabBar, int index)
     QWidget *w = tabBar->parentWidget();
     QMainWindow *mw = nullptr;
     while (w) {
-        if ((mw = qobject_cast<QMainWindow *>(w)))
+        mw = qobject_cast<QMainWindow *>(w);
+        if (mw)
             break;
         w = w->parentWidget();
     }

@@ -125,6 +125,9 @@ void AcpHistoryStore::flushOne(const QString &sessionId)
     if (it == m_pendingPayloads.end()) {
         return;
     }
+    // Copy required: the map slot is erased on the next line, so a const
+    // reference into it.value() would dangle before the write below.
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
     const QJsonObject payload = it.value();
     m_pendingPayloads.erase(it);
 

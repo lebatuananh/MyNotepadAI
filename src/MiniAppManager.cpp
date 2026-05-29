@@ -77,7 +77,7 @@ static QString fetchCdpPageId(const QString &cdpHttpUrl)
     }
     const QJsonArray arr = QJsonDocument::fromJson(reply->readAll()).array();
     reply->deleteLater();
-    for (const QJsonValue &v : arr) {
+    for (const auto &v : arr) {
         const QJsonObject obj = v.toObject();
         if (obj.value(QStringLiteral("type")).toString() == QStringLiteral("page"))
             return obj.value(QStringLiteral("id")).toString();

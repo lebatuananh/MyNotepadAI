@@ -43,7 +43,7 @@ int main(int argc, char *argv[])
     if (port <= 0 || token.isEmpty() || positional.isEmpty())
         return 1;
 
-    QString filePath = positional.first();
+    const QString &filePath = positional.first();
 
     QTcpSocket socket;
     socket.connectToHost(QStringLiteral("127.0.0.1"), static_cast<quint16>(port));

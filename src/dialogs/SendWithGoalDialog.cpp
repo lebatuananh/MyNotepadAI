@@ -66,7 +66,7 @@ void SendWithGoalDialog::onStart()
     accept();
 }
 
-SendWithGoalResult SendWithGoalDialog::result() const
+SendWithGoalResult SendWithGoalDialog::goalResult() const
 {
     const GoalConfigResult gcr = m_goalConfig->result();
     SendWithGoalResult r;

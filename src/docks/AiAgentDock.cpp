@@ -383,7 +383,7 @@ void AiAgentDock::sendWithGoal()
     if (dlg.exec() != QDialog::Accepted)
         return;
 
-    const auto res = dlg.result();
+    const auto res = dlg.goalResult();
     if (res.successCriteriaList.isEmpty())
         return;
 

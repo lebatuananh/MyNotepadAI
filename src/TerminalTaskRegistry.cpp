@@ -55,7 +55,7 @@ QList<TerminalTask> TerminalTaskRegistry::tasksForWorkspace(const QString &works
     const QJsonArray arr = doc.object().value(key).toArray();
     QList<TerminalTask> result;
     result.reserve(arr.size());
-    for (const QJsonValue &v : arr) {
+    for (const auto &v : arr) {
         const QJsonObject obj = v.toObject();
         const QString name    = obj.value(QStringLiteral("name")).toString();
         const QString command = obj.value(QStringLiteral("command")).toString();

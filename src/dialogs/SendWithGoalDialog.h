@@ -28,7 +28,9 @@ public:
                                 QWidget *parent = nullptr);
     ~SendWithGoalDialog() override;
 
-    SendWithGoalResult result() const;
+    // Named goalResult() rather than result() to avoid shadowing
+    // QDialog::result() (which returns the int accept/reject code).
+    SendWithGoalResult goalResult() const;
 
 private slots:
     void onStart();

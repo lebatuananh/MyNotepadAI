@@ -1,21 +1,36 @@
 # NotepadAI
 
-A fast, cross-platform code editor with built-in AI agents, Git integration, and an embedded terminal. Built on [Notepad Next](https://github.com/dail8859/NotepadNext) (a Notepad++ reimplementation in Qt/C++).
+You shouldn't have to leave your editor to talk to an AI, run git, or open a shell. NotepadAI is a Notepad++-style code editor that has those things built in, not bolted on the side. It's a fork of [Notepad Next](https://github.com/dail8859/NotepadNext) (itself a Notepad++ reimplementation in Qt/C++), and it stays light and fast while doing a lot more.
 
 ![screenshot](/screenshot.png)
 
 ## Features
 
-- **AI Agent Integration** — Chat with Claude Code, Gemini, or any ACP-compatible agent directly inside the editor. Agents can read/write files, run terminal commands, and understand your workspace context.
-- **Git Integration** — Inline blame, gutter diff indicators, commit history viewer, staging/unstaging, branch picker, and file-tree decorations. No external Git GUI needed.
-- **Embedded Terminal** — Full PTY terminal with mouse reporting, image passthrough, and persistent task registry. Open terminals in workspace or file directory.
-- **Notepad++ Compatibility** — Familiar tabbed interface, syntax highlighting for 80+ languages via Scintilla/Lexilla, macro recording, session management, and Notepad++ config import.
-- **Lightweight & Fast** — Native C++20/Qt 6 with zero-copy hot paths, precompiled headers, and Control Flow Guard. Starts in milliseconds.
-- **Cross-platform** — Windows, Linux (AppImage), and macOS (dmg).
+### AI agents
+
+NotepadAI speaks the Agent Client Protocol (ACP) over stdio. Claude Code is the built-in default. Add any other ACP-compatible agent — Gemini, Auggie, or your own command — from Settings. Agents read and write files, run terminal commands, and see your workspace context, so they work on the same code you do.
+
+There's also a separate Goal Agent built in. It isn't ACP: you describe an intent and it plans and executes the steps itself. And when you commit, AI can write the commit message from your staged diff. The protocol details and how to wire up a custom agent are in [doc/AcpAgents.md](doc/AcpAgents.md).
+
+### Git, built in
+
+Inline blame, gutter diff markers, commit history, staging and unstaging, a branch picker, and git status decorations in the file tree. Merge and rebase flows are here too, including an interactive-rebase editor and a 3-way conflict viewer. Most operations never shell out to `git` — it diffs with xdiff and parses status, log, and blame itself. You don't need a separate Git GUI.
+
+### A real terminal
+
+A full PTY terminal built on libvterm and libptyqt, with mouse reporting and a scrollback buffer. It reads your project files — Justfile, Makefile, package.json, deno.json — figures out which tasks you can run, and draws clickable run icons in the editor margin. Open a terminal rooted at the active workspace or at the current file's folder.
+
+### The editor itself
+
+It's still Notepad++ at heart: a tabbed, splittable interface (Qt Advanced Docking System) with syntax highlighting for 80+ languages through vendored Scintilla and Lexilla. Macro recording and playback, session management, and an embedded Lua scripting layer are all here. If you're coming from Notepad++, it imports your config and sessions. There's also an editor minimap and live preview for Markdown and HTML.
+
+### Extras worth knowing
+
+You can define mini-apps — small HTML/JS tools that run in a native WebView inside the editor. Scheduled tasks fire AI agent sessions on a cron schedule. And you can keep several folder-as-workspace roots open at the same time.
 
 ## Installation
 
-Download binaries from the [Releases](https://github.com/nullmastermind/NotepadAI/releases) page.
+Grab a binary from the [Releases](https://github.com/nullmastermind/NotepadAI/releases) page.
 
 | Platform | Format |
 |----------|--------|
@@ -23,48 +38,30 @@ Download binaries from the [Releases](https://github.com/nullmastermind/NotepadA
 | Linux    | AppImage |
 | macOS    | Disk image (.dmg) |
 
-## Building from Source
+## Building from source
 
-Requirements: CMake 3.21+, Qt 6.5+, Ninja, a C++20 compiler (MSVC, GCC, or Clang).
+You need CMake 3.21+, Qt 6.5+, Ninja, and a C++20 compiler (MSVC, clang-cl, GCC, or Clang).
 
 ```bash
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ```
 
-See [doc/Building.md](doc/Building.md) for platform-specific details.
+For platform-specific details and packaging on Windows, macOS, and Linux, see [doc/Building.md](doc/Building.md).
 
-## AI Agents
+## Multi-instance and portable mode
 
-NotepadAI speaks the [Agent Client Protocol (ACP)](doc/AcpAgents.md) over stdio. The default built-in agent is Claude Code. Add custom agents via Settings with any command that implements ACP's JSON-RPC 2.0 wire format.
+All app data lives under `<data-dir>/NotepadAI/` — the settings INI, session backups, and ACP chat history. You can point that somewhere else. Highest priority first:
 
-## Multi-Instance / Portable Mode
+- CLI flag: `NotepadAI.exe --data-dir=D:/profiles/work`
+- Environment variable: `NOTEPADAI_DATA_DIR=D:/profiles/work`
+- Portable marker: an empty file named `portable` next to the exe
+- Preferences UI: Settings > Data Directory > Browse
 
-NotepadAI supports running multiple independent instances, each with its own settings, sessions, and AI history. This is useful when you want separate profiles (e.g., work vs personal) without data conflicts.
-
-All application data is stored under `<data-dir>/NotepadAI/` (settings INI, session backups, ACP chat history).
-
-### Custom data directory
-
-Set a custom data directory using one of these methods (highest priority first):
-
-| Method | Example |
-|--------|---------|
-| CLI flag | `NotepadAI.exe --data-dir=D:\profiles\work` |
-| Environment variable | `NOTEPADAI_DATA_DIR=D:\profiles\work` |
-| Portable marker | Create an empty file named `portable` next to the exe |
-| Preferences UI | Settings > Data Directory > Browse |
-
-Relative paths are resolved relative to the executable's directory.
-
-When two instances use different data directories, they run as fully independent processes (separate settings, sessions, window state, and SingleApplication identity). Instances sharing the same data directory still behave as a single instance (the second forwards its files to the first).
-
-### Portable mode
-
-Place an empty file named `portable` next to `NotepadAI.exe`. The application will store all data in the same directory as the executable — no writes to `%APPDATA%` or system directories. Ideal for USB drives or self-contained deployments.
+Relative paths resolve against the executable's directory. Two instances with different data dirs are fully independent — separate settings, sessions, window state, and SingleApplication identity. Two instances pointed at the same data dir act as one: the second forwards its files to the first and exits. The `portable` marker keeps everything next to the exe and writes nothing to `%APPDATA%` or any system directory, which is what you want on a USB drive.
 
 ## License
 
-[GNU General Public License v3](https://www.gnu.org/licenses/gpl-3.0.txt)
+[GNU General Public License v3](https://www.gnu.org/licenses/gpl-3.0.txt). See the `LICENSE` file.
 
 Based on Notepad Next by Justin Dailey. AI and Git extensions by [nullmastermind](https://github.com/nullmastermind).

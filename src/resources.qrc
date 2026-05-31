@@ -48,12 +48,15 @@
         <file>icons/list_with_icons.svg</file>
         <file>icons/paperclip.svg</file>
         <file>icons/markdown-preview.svg</file>
+        <file>icons/eye.svg</file>
         <file>icons/html-preview.svg</file>
+        <file>icons/csv-preview.svg</file>
         <file>icons/mini-app.svg</file>
         <file>icons/arrow-left.svg</file>
         <file>icons/arrow-right.svg</file>
         <file>icons/refresh-cw.svg</file>
         <file>icons/send.svg</file>
         <file>icons/circle-stop.svg</file>
+        <file>icons/copy.svg</file>
     </qresource>
 </RCC>

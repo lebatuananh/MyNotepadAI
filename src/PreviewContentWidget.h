@@ -17,6 +17,12 @@ public:
     virtual void refresh(const QString &text) = 0;
     virtual void applyTheme(const QPalette &palette, bool isDark) = 0;
 
+    // File-path load route. Default no-op: previews that opt in via the
+    // TypeRegistration `wantsFilePath` flag (e.g. the CSV table preview) override
+    // this to own their loading (mmap, their own size cap) and bypass the
+    // QByteArray-read + decode + setContent path. Markdown/HTML do not override.
+    virtual void loadFromFile(const QString &path) { Q_UNUSED(path); }
+
 signals:
     void titleChanged(const QString &title);
 };

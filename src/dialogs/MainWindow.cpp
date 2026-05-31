@@ -228,9 +228,62 @@ bool isEditorFocused()
 
 bool forwardClipboardToFocusWidget(const char *slot)
 {
-    QWidget *w = QApplication::focusWidget();
-    if (!w) return false;
-    return QMetaObject::invokeMethod(w, slot);
+    // QApplication::focusWidget() for a QAbstractScrollArea (QTextBrowser /
+    // QTextEdit / QPlainTextEdit) is its *viewport* — a plain QWidget with no
+    // copy/cut/paste/selectAll slot. Invoking the slot on the viewport silently
+    // fails, so Ctrl+C inside a chat bubble used to fall through to the editor.
+    // Climb to the first ancestor that actually declares the no-arg slot and
+    // invoke it there. Read-only browsers don't accept the Copy ShortcutOverride
+    // (TextBrowserInteraction omits TextSelectableByKeyboard), so the window
+    // action fires and this forwarding is the only path that reaches them.
+    const QByteArray signature = QByteArray(slot) + "()";
+    for (QWidget *w = QApplication::focusWidget(); w; w = w->parentWidget()) {
+        // QLabel (used by user chat bubbles) is selectable but has no copy()
+        // slot — copy its selection directly. selectAll has no QLabel analogue,
+        // and a read-only label can't cut/paste, so only "copy" is meaningful.
+        if (auto *label = qobject_cast<QLabel *>(w)) {
+            if (qstrcmp(slot, "copy") == 0) {
+                // Consume copy at the focused label whether or not there's a
+                // selection: only write the clipboard when there IS one (an
+                // empty selection leaves existing clipboard contents intact),
+                // but always return true so an empty-selection copy does NOT
+                // fall through to the editor's copyAllowLine() and grab an
+                // unrelated current line while the user is on a chat bubble.
+                if (label->hasSelectedText()) {
+                    QApplication::clipboard()->setText(label->selectedText());
+                }
+                return true;
+            }
+            // Non-copy clipboard ops don't apply to a static label; let the
+            // climb continue in case a real slot-bearing ancestor exists.
+            continue;
+        }
+        if (w->metaObject()->indexOfMethod(signature.constData()) >= 0) {
+            return QMetaObject::invokeMethod(w, slot);
+        }
+    }
+    return false;
+}
+
+// Tints an SVG that declares stroke="currentColor" to `color` by compositing
+// SourceIn over each rendered pixmap. Qt's icon engine otherwise resolves
+// currentColor to opaque black and never follows theme switches, so callers
+// re-run this on PaletteChange/effectiveThemeChanged.
+QIcon makeTintedIcon(const QString &svgPath, const QColor &color)
+{
+    QIcon source(svgPath);
+    if (source.isNull()) return source;
+    QIcon dst;
+    for (int sz : {16, 20, 22, 24, 32, 48}) {
+        QPixmap pm = source.pixmap(sz, sz);
+        if (pm.isNull()) continue;
+        QPainter p(&pm);
+        p.setCompositionMode(QPainter::CompositionMode_SourceIn);
+        p.fillRect(pm.rect(), color);
+        p.end();
+        dst.addPixmap(pm);
+    }
+    return dst;
 }
 
 } // namespace
@@ -282,8 +335,8 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
     connect(dockedEditor, &DockedEditor::editorCloseRequested, this, &MainWindow::closeFile);
     connect(dockedEditor, &DockedEditor::editorActivated, this, &MainWindow::activateEditor);
     connect(dockedEditor, &DockedEditor::previewTabActivated, this, [this](QWidget *) {
-        if (m_actionMarkdownPreview)
-            m_actionMarkdownPreview->setChecked(true);
+        if (m_actionPreview)
+            m_actionPreview->setChecked(true);
     });
     connect(dockedEditor, &DockedEditor::contextMenuRequestedForEditor, this, &MainWindow::tabBarRightClicked);
     connect(dockedEditor, &DockedEditor::titleBarDoubleClicked, this, [this]() { newFile(true); });
@@ -1351,32 +1404,21 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
     ui->menuView->addAction(fileListDock->toggleViewAction());
 
     {
-        auto makeTintedIcon = [](const QString &svgPath, const QColor &color) {
-            QIcon source(svgPath);
-            if (source.isNull()) return source;
-            QIcon dst;
-            for (int sz : {16, 20, 22, 24, 32, 48}) {
-                QPixmap pm = source.pixmap(sz, sz);
-                if (pm.isNull()) continue;
-                QPainter p(&pm);
-                p.setCompositionMode(QPainter::CompositionMode_SourceIn);
-                p.fillRect(pm.rect(), color);
-                p.end();
-                dst.addPixmap(pm);
-            }
-            return dst;
-        };
-        QIcon icon = makeTintedIcon(QStringLiteral(":/icons/markdown-preview.svg"),
+        QIcon icon = makeTintedIcon(QStringLiteral(":/icons/eye.svg"),
                                     palette().color(QPalette::ButtonText));
-        m_actionMarkdownPreview = new QAction(icon, tr("Markdown Preview"), this);
+        // Generic "Preview" — the action is no longer Markdown-specific. The
+        // label/tooltip are made type-specific dynamically per active editor
+        // (see updatePreviewActionForEditor). Ctrl+Shift+M is kept for muscle
+        // memory even though it now previews any supported type.
+        m_actionPreview = new QAction(icon, tr("Preview"), this);
     }
-    m_actionMarkdownPreview->setCheckable(true);
-    m_actionMarkdownPreview->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_M));
-    m_actionMarkdownPreview->setEnabled(false);
-    ui->menuView->addAction(m_actionMarkdownPreview);
-    ui->mainToolBar->addAction(m_actionMarkdownPreview);
+    m_actionPreview->setCheckable(true);
+    m_actionPreview->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_M));
+    m_actionPreview->setEnabled(false);
+    ui->menuView->addAction(m_actionPreview);
+    ui->mainToolBar->addAction(m_actionPreview);
 
-    connect(m_actionMarkdownPreview, &QAction::triggered, this, [this](bool checked) {
+    connect(m_actionPreview, &QAction::triggered, this, [this](bool checked) {
         Q_UNUSED(checked)
         ScintillaNext *editor = currentEditor();
         if (!editor) return;
@@ -1394,6 +1436,16 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
         } else {
             mgr->openOrFocusPreview(editor);
         }
+    });
+
+    // The eye icon declares stroke="currentColor"; Qt resolves that to opaque
+    // black once and never follows theme switches. Re-tint on theme change, and
+    // re-run the per-editor update so a disabled (greyed) icon isn't left with
+    // the previous theme's color — the disabled variant is derived from the
+    // Normal pixmaps we just rebuilt.
+    connect(app, &NotepadNextApplication::effectiveThemeChanged, this, [this]() {
+        retintPreviewActionIcon();
+        updatePreviewActionForEditor(currentEditor());
     });
 
     connect(app->getSettings(), &ApplicationSettings::showMenuBarChanged, this, [this](bool showMenuBar) {
@@ -2271,8 +2323,11 @@ void MainWindow::registerWorkspaceDock(FolderAsWorkspaceDock *dock)
         if (!isDir) {
             auto *mgr = this->app->getPreviewTabManager();
             if (mgr && mgr->canPreview(absPath)) {
+                // The 10 MB cap only applies to the decoded-text route. File-path
+                // types (CSV/TSV) mmap the file and enforce their own multi-GB cap
+                // in loadFromFile — don't suppress their Preview entry here.
                 QFileInfo fi(absPath);
-                if (fi.size() <= 10 * 1024 * 1024) {
+                if (mgr->previewWantsFilePath(absPath) || fi.size() <= 10 * 1024 * 1024) {
                     auto *previewAction = new QAction(tr("Preview"), menu);
                     connect(previewAction, &QAction::triggered, this, [this, absPath]() {
                         auto *mgr = this->app->getPreviewTabManager();
@@ -3460,16 +3515,41 @@ void MainWindow::activateEditor(ScintillaNext *editor)
 
     emit editorActivated(editor);
 
-    if (m_actionMarkdownPreview) {
-        const bool isMarkdown = editor && editor->languageName == QLatin1String("Markdown");
-        m_actionMarkdownPreview->setEnabled(isMarkdown);
+    updatePreviewActionForEditor(editor);
+}
 
-        bool previewActive = false;
-        if (isMarkdown && app->getPreviewTabManager()) {
-            previewActive = app->getPreviewTabManager()->previewForEditor(editor) != nullptr;
-        }
-        m_actionMarkdownPreview->setChecked(previewActive);
+void MainWindow::updatePreviewActionForEditor(ScintillaNext *editor)
+{
+    if (!m_actionPreview) return;
+
+    auto *mgr = app->getPreviewTabManager();
+    // One resolver behind enabled-state, tooltip, and checked: the action is
+    // enabled iff the active editor resolves to a registered preview type.
+    const bool canPreview = mgr && mgr->canPreviewEditor(editor);
+    m_actionPreview->setEnabled(canPreview);
+
+    if (canPreview) {
+        const QString typeName = mgr->previewTypeName(editor);
+        // "Preview Markdown" / "Preview HTML" / "Preview CSV" / … — fall back to
+        // the plain label if the type carries no display name.
+        m_actionPreview->setToolTip(typeName.isEmpty()
+                                        ? tr("Preview")
+                                        : tr("Preview %1").arg(typeName));
+    } else {
+        m_actionPreview->setToolTip(tr("Preview"));
     }
+
+    bool previewActive = false;
+    if (canPreview)
+        previewActive = mgr->previewForEditor(editor) != nullptr;
+    m_actionPreview->setChecked(previewActive);
+}
+
+void MainWindow::retintPreviewActionIcon()
+{
+    if (!m_actionPreview) return;
+    m_actionPreview->setIcon(makeTintedIcon(QStringLiteral(":/icons/eye.svg"),
+                                            palette().color(QPalette::ButtonText)));
 }
 
 void MainWindow::applyStyleSheet()
@@ -3789,12 +3869,8 @@ void MainWindow::addEditor(ScintillaNext *editor)
     connect(editor, &ScintillaNext::updateUi, this, &MainWindow::updateDocumentBasedUi);
 
     connect(editor, &ScintillaNext::lexerChanged, this, [this, editor]() {
-        if (editor == currentEditor() && m_actionMarkdownPreview) {
-            const bool isMarkdown = editor->languageName == QLatin1String("Markdown");
-            m_actionMarkdownPreview->setEnabled(isMarkdown);
-            if (!isMarkdown)
-                m_actionMarkdownPreview->setChecked(false);
-        }
+        if (editor == currentEditor())
+            updatePreviewActionForEditor(editor);
     });
 
     // Watch for any zoom events (Ctrl+Scroll or pinch-to-zoom (Qt translates it as Ctrl+Scroll)) so that the event

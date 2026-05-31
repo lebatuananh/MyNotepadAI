@@ -31,11 +31,32 @@
 class FileEncodingDetector
 {
 public:
-    enum class Bom : std::uint8_t { None, Utf8, Utf16LE, Utf16BE };
+    // Utf32LE/Utf32BE are additive: detectBom()/decode() never produce them
+    // (their behavior is unchanged); only the new sniff() path reports them, for
+    // callers that lazily decode per-slice and need to take the UTF-16/32
+    // transcode branch (e.g. the CSV table preview).
+    enum class Bom : std::uint8_t { None, Utf8, Utf16LE, Utf16BE, Utf32LE, Utf32BE };
 
     // Decodes raw bytes to QString. Strips BOM. Returns false if decoding falls
     // back to lossy replacement (i.e. encoding could not be determined cleanly).
     static bool decode(const QByteArray &raw, QString &out, Bom *bomOut = nullptr);
+
+    // Result of sniffing a file head without decoding the whole file.
+    struct SniffResult {
+        QByteArray codecName;   // name for QTextCodec::codecForName; empty == UTF-8
+        Bom bom = Bom::None;    // detected BOM (may be a UTF-32 kind)
+    };
+
+    // Sniff-only encoding detection: inspect at most the first ~64 KB (the head
+    // the caller supplies) and return the detected codec name + BOM WITHOUT
+    // decoding the whole file. Mirrors decode()'s detection ladder (BOM fast
+    // path → strict UTF-8 validity → uchardet on the head) but never builds a
+    // QString of the content. Intended for lazy per-slice decoders.
+    static SniffResult sniff(const QByteArray &head);
+
+    // Number of BOM bytes at the start of a file for a given BOM kind
+    // (0/3/2/2/4/4). Lets callers skip and later re-emit the BOM verbatim.
+    static int bomByteCount(Bom bom);
 
 private:
     static Bom detectBom(const QByteArray &raw);

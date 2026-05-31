@@ -45,11 +45,28 @@ PreviewTabManager::PreviewTabManager(NotepadNextApplication *app, DockedEditor *
         QPalette pal = m_app->palette();
         bool isDark = m_app->isEffectiveThemeDark();
         QColor iconColor = pal.color(QPalette::ButtonText);
+        // Editor-bound previews (Markdown/HTML live previews, etc.).
         for (auto &entry : m_previews) {
             if (entry.widget)
                 entry.widget->applyTheme(pal, isDark);
             if (entry.dockWidget && !entry.iconPath.isEmpty())
                 entry.dockWidget->tabWidget()->setIcon(tintIcon(entry.iconPath, iconColor));
+        }
+        // File-path previews (the route CSV uses; also Markdown/HTML opened from
+        // the file tree). Without this loop these tabs never re-theme on a
+        // light/dark switch. The iconPath is recovered from the registry by the
+        // widget's typeId() (CSV/TSV share the csv icon).
+        for (auto it = m_previewsByPath.begin(); it != m_previewsByPath.end(); ++it) {
+            ads::CDockWidget *dock = it.value();
+            if (!dock) continue;
+            auto *preview = qobject_cast<PreviewContentWidget *>(dock->widget());
+            if (!preview) continue;
+            preview->applyTheme(pal, isDark);
+            // Recover the icon path from the registry by typeId (CSV/TSV both
+            // report "csv" and share the csv icon, so the lookup is correct).
+            auto regIt = m_registry.constFind(preview->typeId());
+            if (regIt != m_registry.constEnd() && !regIt.value().iconPath.isEmpty())
+                dock->tabWidget()->setIcon(tintIcon(regIt.value().iconPath, iconColor));
         }
     });
 
@@ -81,6 +98,58 @@ bool PreviewTabManager::canPreview(const QString &filePath) const
     return findRegistration(filePath) != nullptr;
 }
 
+bool PreviewTabManager::previewWantsFilePath(const QString &filePath) const
+{
+    const TypeRegistration *reg = findRegistration(filePath);
+    return reg && reg->wantsFilePath;
+}
+
+const PreviewTabManager::TypeRegistration *PreviewTabManager::registrationForEditor(ScintillaNext *editor) const
+{
+    if (!editor) return nullptr;
+
+    // 1) Extension match (authoritative when the buffer is backed by a file).
+    const TypeRegistration *reg = nullptr;
+    if (editor->isFile())
+        reg = findRegistration(editor->getFilePath());
+
+    // 2) Fallback: map the active Scintilla language name onto a preview type so
+    //    an UNSAVED buffer (no extension yet) still previews. wantsFilePath types
+    //    register no languageNames, so they never resolve through this branch.
+    if (!reg) {
+        const QString lang = editor->languageName;
+        if (!lang.isEmpty()) {
+            for (auto it = m_registry.constBegin(); it != m_registry.constEnd(); ++it) {
+                if (it.value().languageNames.contains(lang)) {
+                    reg = &it.value();
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!reg) return nullptr;
+
+    // A file-path-route type (CSV/TSV mmaps a real file) cannot preview a buffer
+    // with no on-disk path — loadFromFile would have nothing to open. Reject so
+    // the action is disabled rather than opening an empty grid.
+    if (reg->wantsFilePath && !editor->isFile())
+        return nullptr;
+
+    return reg;
+}
+
+bool PreviewTabManager::canPreviewEditor(ScintillaNext *editor) const
+{
+    return registrationForEditor(editor) != nullptr;
+}
+
+QString PreviewTabManager::previewTypeName(ScintillaNext *editor) const
+{
+    const TypeRegistration *reg = registrationForEditor(editor);
+    return reg ? reg->displayName : QString();
+}
+
 int PreviewTabManager::debounceMs(int docLength) const
 {
     if (docLength < 10 * 1024)  return 150;
@@ -100,18 +169,9 @@ void PreviewTabManager::openOrFocusPreview(ScintillaNext *sourceEditor)
         return;
     }
 
-    QString filePath = sourceEditor->isFile() ? sourceEditor->getFilePath() : QString();
-    const TypeRegistration *reg = nullptr;
-    if (!filePath.isEmpty())
-        reg = findRegistration(filePath);
-    if (!reg) {
-        for (auto rit = m_registry.constBegin(); rit != m_registry.constEnd(); ++rit) {
-            if (rit.value().extensions.contains(QStringLiteral("md"))) {
-                reg = &rit.value();
-                break;
-            }
-        }
-    }
+    // Single resolver — same one the toolbar gate/tooltip use, so a click can
+    // never reach here for a type the action claimed was unpreviewable.
+    const TypeRegistration *reg = registrationForEditor(sourceEditor);
     if (!reg) return;
 
     PreviewContentWidget *preview = reg->factory(nullptr);
@@ -123,8 +183,15 @@ void PreviewTabManager::openOrFocusPreview(ScintillaNext *sourceEditor)
     if (sourceEditor->isFile())
         basePath = QFileInfo(sourceEditor->getFilePath()).absolutePath();
 
-    QString text = QString::fromUtf8(sourceEditor->getText(sourceEditor->length() + 1));
-    preview->setContent(text, basePath);
+    if (reg->wantsFilePath) {
+        // File-path route (CSV/TSV): the widget owns mmap + its own size cap.
+        // registrationForEditor() already guaranteed isFile(), so the path is
+        // valid — no empty-grid / null-path case reaches here.
+        preview->loadFromFile(sourceEditor->getFilePath());
+    } else {
+        QString text = QString::fromUtf8(sourceEditor->getText(sourceEditor->length() + 1));
+        preview->setContent(text, basePath);
+    }
 
     QString title = sourceEditor->isFile()
         ? QFileInfo(sourceEditor->getFilePath()).fileName()
@@ -145,14 +212,19 @@ void PreviewTabManager::openOrFocusPreview(ScintillaNext *sourceEditor)
         performRender(sourceEditor);
     });
 
-    // Live update on content change
-    connect(sourceEditor, &ScintillaNext::updateUi, this, [this, sourceEditor](Scintilla::Update updated) {
-        if (!m_previews.contains(sourceEditor)) return;
-        if (Scintilla::FlagSet(updated, Scintilla::Update::Content))
-            scheduleRender(sourceEditor);
-        else if (Scintilla::FlagSet(updated, Scintilla::Update::VScroll))
-            syncScroll(sourceEditor);
-    });
+    // Live update on content change. Only for the decoded-text route: a
+    // wantsFilePath preview (CSV/TSV) reads from disk via its own watcher and
+    // owns its mmap — copying the entire editor buffer on every keystroke would
+    // defeat that and is wasted work, so we skip the hookup entirely for it.
+    if (!reg->wantsFilePath) {
+        connect(sourceEditor, &ScintillaNext::updateUi, this, [this, sourceEditor](Scintilla::Update updated) {
+            if (!m_previews.contains(sourceEditor)) return;
+            if (Scintilla::FlagSet(updated, Scintilla::Update::Content))
+                scheduleRender(sourceEditor);
+            else if (Scintilla::FlagSet(updated, Scintilla::Update::VScroll))
+                syncScroll(sourceEditor);
+        });
+    }
 
     // Lifecycle: close preview when source editor is destroyed
     connect(sourceEditor, &QObject::destroyed, this, [this, sourceEditor]() {
@@ -175,18 +247,24 @@ void PreviewTabManager::openOrFocusPreview(ScintillaNext *sourceEditor)
     });
 
     // Update title on rename
-    connect(sourceEditor, &ScintillaNext::renamed, this, [this, sourceEditor]() {
+    connect(sourceEditor, &ScintillaNext::renamed, this, [this, sourceEditor, wantsFilePath = reg->wantsFilePath]() {
         auto it = m_previews.find(sourceEditor);
         if (it == m_previews.end() || !it->widget || !it->dockWidget) return;
         QString newTitle = sourceEditor->isFile()
             ? QFileInfo(sourceEditor->getFilePath()).fileName()
             : sourceEditor->getName();
         it->dockWidget->setWindowTitle(newTitle);
-        QString text = QString::fromUtf8(sourceEditor->getText(sourceEditor->length() + 1));
-        QString basePath;
-        if (sourceEditor->isFile())
-            basePath = QFileInfo(sourceEditor->getFilePath()).absolutePath();
-        it->widget->setContent(text, basePath);
+        if (wantsFilePath) {
+            // File-path route: re-point the widget at the new on-disk path.
+            if (sourceEditor->isFile())
+                it->widget->loadFromFile(sourceEditor->getFilePath());
+        } else {
+            QString text = QString::fromUtf8(sourceEditor->getText(sourceEditor->length() + 1));
+            QString basePath;
+            if (sourceEditor->isFile())
+                basePath = QFileInfo(sourceEditor->getFilePath()).absolutePath();
+            it->widget->setContent(text, basePath);
+        }
     });
 
     emit previewOpened(preview);
@@ -248,7 +326,9 @@ void PreviewTabManager::openPreviewFromFile(const QString &filePath)
     if (!reg) return;
 
     QFileInfo fi(filePath);
-    if (fi.size() > 10 * 1024 * 1024) return;
+    // The 10 MB cap applies only to the decoded-text route. File-path-route
+    // previews (CSV) enforce their own (much larger) cap inside loadFromFile.
+    if (!reg->wantsFilePath && fi.size() > 10 * 1024 * 1024) return;
 
     // Normalized key for the path→dock registry. Use absoluteFilePath (not
     // canonicalFilePath) so the key is well-defined even before the file is
@@ -269,19 +349,21 @@ void PreviewTabManager::openPreviewFromFile(const QString &filePath)
         m_previewsByPath.erase(existing);
     }
 
-    QFile f(filePath);
-    if (!f.open(QIODevice::ReadOnly)) return;
-    QByteArray raw = f.readAll();
-    f.close();
+    QString text;
+    if (!reg->wantsFilePath) {
+        QFile f(filePath);
+        if (!f.open(QIODevice::ReadOnly)) return;
+        QByteArray raw = f.readAll();
+        f.close();
 
-    if (raw.left(512).contains('\0')) return;
+        if (raw.left(512).contains('\0')) return;
+
+        FileEncodingDetector::decode(raw, text);
+    }
 
     // Close editor preview tab if one exists (shared transient slot)
     if (m_dockedEditor->previewEditor())
         m_dockedEditor->previewEditor()->close();
-
-    QString text;
-    FileEncodingDetector::decode(raw, text);
 
     // Close existing transient preview tab (replaceable, like editor preview tab)
     if (m_transientPreviewTab) {
@@ -295,11 +377,16 @@ void PreviewTabManager::openPreviewFromFile(const QString &filePath)
     preview->applyTheme(m_app->palette(), m_app->isEffectiveThemeDark());
 
     QString basePath = fi.absolutePath();
-    preview->setContent(text, basePath);
+    if (reg->wantsFilePath) {
+        // File-path route: the widget owns mmap + its own cap. No decoded text.
+        preview->loadFromFile(filePath);
+    } else {
+        preview->setContent(text, basePath);
 
-    auto *htmlPreview = qobject_cast<HtmlPreviewWidget *>(preview);
-    if (htmlPreview)
-        htmlPreview->setFilePath(filePath);
+        auto *htmlPreview = qobject_cast<HtmlPreviewWidget *>(preview);
+        if (htmlPreview)
+            htmlPreview->setFilePath(filePath);
+    }
 
     QString title = fi.fileName();
     QColor iconColor = m_app->palette().color(QPalette::ButtonText);
@@ -329,6 +416,14 @@ void PreviewTabManager::openPreviewFromFile(const QString &filePath)
         auto it = m_previewsByPath.find(pathKey);
         if (it != m_previewsByPath.end() && it.value() == dockWidget)
             m_previewsByPath.erase(it);
+    });
+
+    // Let the preview drive its own tab title (e.g. the CSV preview prefixes a
+    // dirty marker when its edit overlay is non-empty). Scoped to the dock so it
+    // tears down with the tab.
+    connect(preview, &PreviewContentWidget::titleChanged, dockWidget,
+            [dockWidget](const QString &t) {
+        if (dockWidget) dockWidget->setWindowTitle(t);
     });
 
     emit previewOpened(preview);

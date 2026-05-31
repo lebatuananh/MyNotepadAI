@@ -140,6 +140,15 @@ public slots:
     void updateLanguageBasedUi(ScintillaNext *editor);
     void updateGui(ScintillaNext *editor);
 
+    // Recompute the preview toolbar/menu action's enabled state, dynamic tooltip
+    // ("Preview Markdown"/"Preview HTML"/"Preview CSV"/…), and checked state for
+    // the given editor, resolving the type through PreviewTabManager's registry.
+    void updatePreviewActionForEditor(ScintillaNext *editor);
+    // Re-tint the eye icon from the live palette (ButtonText). Called on theme
+    // change — Qt's icon engine resolves currentColor to opaque black once and
+    // does not follow theme switches.
+    void retintPreviewActionIcon();
+
     void detectLanguage(ScintillaNext *editor);
 
     void setLanguage(ScintillaNext *editor, const QString &languageName);
@@ -286,7 +295,7 @@ private:
     MiniAppManager *m_miniAppManager = nullptr;
     MiniAppRegistry *m_miniAppRegistry = nullptr;
 
-    QAction *m_actionMarkdownPreview = nullptr;
+    QAction *m_actionPreview = nullptr;
     QAction *m_actionQuickFileOpen = nullptr;
 
     // --- Quick File Open (Ctrl+P) per-workspace index cache (RCU-lite) ---

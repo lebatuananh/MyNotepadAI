@@ -39,6 +39,11 @@ qt_add_executable(NotepadAI
 	FocusWatcher.h
 	HtmlConverter.h
 	HtmlPreviewWidget.h
+	CsvPreviewWidget.h
+	CsvTableModel.h
+	CsvDocument.h
+	CsvSortFilter.h
+	CsvFilterStrip.h
 	IFaceTable.h
 	MarkdownPreviewWidget.h
 	MarkdownRenderer.h
@@ -119,6 +124,12 @@ qt_add_executable(NotepadAI
 	Finder.cpp
 	HtmlConverter.cpp
 	HtmlPreviewWidget.cpp
+	CsvPreviewWidget.cpp
+	CsvTableModel.cpp
+	CsvEditCommands.cpp
+	CsvDocument.cpp
+	CsvSortFilter.cpp
+	CsvFilterStrip.cpp
 	IFaceTable.cpp
 	MarkdownPreviewWidget.cpp
 	MarkdownRenderer.cpp

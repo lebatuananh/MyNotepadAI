@@ -31,6 +31,7 @@
 #include "PreviewTabManager.h"
 #include "MarkdownPreviewWidget.h"
 #include "HtmlPreviewWidget.h"
+#include "CsvPreviewWidget.h"
 #include "ai/CommitMessageGenerator.h"
 #include "ai/CredentialStore.h"
 #include "ScheduledTaskRegistry.h"
@@ -300,19 +301,41 @@ bool NotepadNextApplication::init()
     {
         previewTabManager = new PreviewTabManager(this, window->getDockedEditor(), this);
         previewTabManager->registerType(QStringLiteral("markdown"), {
-            {QStringLiteral("md"), QStringLiteral("markdown"), QStringLiteral("mdown"),
+            .extensions = {QStringLiteral("md"), QStringLiteral("markdown"), QStringLiteral("mdown"),
              QStringLiteral("mkd"), QStringLiteral("mkdn"), QStringLiteral("mdwn")},
-            QStringLiteral(":/icons/markdown-preview.svg"),
-            [this](QWidget *parent) -> PreviewContentWidget * {
+            .iconPath = QStringLiteral(":/icons/markdown-preview.svg"),
+            .factory = [this](QWidget *parent) -> PreviewContentWidget * {
                 return new MarkdownPreviewWidget(this, parent);
-            }
+            },
+            .displayName = QStringLiteral("Markdown"),
+            .languageNames = {QStringLiteral("Markdown")},
         });
         previewTabManager->registerType(QStringLiteral("html"), {
-            {QStringLiteral("html"), QStringLiteral("htm")},
-            QStringLiteral(":/icons/html-preview.svg"),
-            [this](QWidget *parent) -> PreviewContentWidget * {
+            .extensions = {QStringLiteral("html"), QStringLiteral("htm")},
+            .iconPath = QStringLiteral(":/icons/html-preview.svg"),
+            .factory = [this](QWidget *parent) -> PreviewContentWidget * {
                 return new HtmlPreviewWidget(this, parent);
-            }
+            },
+            .displayName = QStringLiteral("HTML"),
+            .languageNames = {QStringLiteral("HTML")},
+        });
+        previewTabManager->registerType(QStringLiteral("csv"), {
+            .extensions = {QStringLiteral("csv")},
+            .iconPath = QStringLiteral(":/icons/csv-preview.svg"),
+            .factory = [this](QWidget *parent) -> PreviewContentWidget * {
+                return new CsvPreviewWidget(this, parent);
+            },
+            .wantsFilePath = true,
+            .displayName = QStringLiteral("CSV"),
+        });
+        previewTabManager->registerType(QStringLiteral("tsv"), {
+            .extensions = {QStringLiteral("tsv"), QStringLiteral("tab")},
+            .iconPath = QStringLiteral(":/icons/csv-preview.svg"),
+            .factory = [this](QWidget *parent) -> PreviewContentWidget * {
+                return new CsvPreviewWidget(this, parent);
+            },
+            .wantsFilePath = true,
+            .displayName = QStringLiteral("TSV"),
         });
     }
 

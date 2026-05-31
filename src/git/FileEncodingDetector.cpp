@@ -34,6 +34,19 @@ FileEncodingDetector::Bom FileEncodingDetector::detectBom(const QByteArray &raw)
     return Bom::None;
 }
 
+int FileEncodingDetector::bomByteCount(Bom bom)
+{
+    switch (bom) {
+    case Bom::Utf8:    return 3;
+    case Bom::Utf16LE:
+    case Bom::Utf16BE: return 2;
+    case Bom::Utf32LE:
+    case Bom::Utf32BE: return 4;
+    case Bom::None:    break;
+    }
+    return 0;
+}
+
 bool FileEncodingDetector::isValidUtf8(const char *data, qsizetype size)
 {
     // Hot loop: walk once, branch-light. Reject overlongs and surrogates.
@@ -91,6 +104,11 @@ bool FileEncodingDetector::decode(const QByteArray &raw, QString &out, Bom *bomO
         }
         return false;
     }
+    case Bom::Utf32LE:
+    case Bom::Utf32BE:
+        // detectBom() never returns a UTF-32 kind, so this path is unreachable
+        // from decode(); listed only to keep the switch exhaustive. Fall through
+        // to the no-BOM detection ladder if ever hit.
     case Bom::None:
         break;
     }
@@ -127,4 +145,72 @@ bool FileEncodingDetector::decode(const QByteArray &raw, QString &out, Bom *bomO
     }
     out = QString::fromLatin1(raw);
     return false;
+}
+
+FileEncodingDetector::SniffResult FileEncodingDetector::sniff(const QByteArray &head)
+{
+    SniffResult result;
+
+    const auto *p = reinterpret_cast<const unsigned char *>(head.constData());
+    const qsizetype n = head.size();
+
+    // BOM fast path. UTF-32 must be checked before UTF-16 because a UTF-32LE BOM
+    // (FF FE 00 00) starts with the UTF-16LE BOM (FF FE).
+    if (n >= 4 && p[0] == 0x00 && p[1] == 0x00 && p[2] == 0xFE && p[3] == 0xFF) {
+        result.bom = Bom::Utf32BE;
+        result.codecName = QByteArrayLiteral("UTF-32BE");
+        return result;
+    }
+    if (n >= 4 && p[0] == 0xFF && p[1] == 0xFE && p[2] == 0x00 && p[3] == 0x00) {
+        result.bom = Bom::Utf32LE;
+        result.codecName = QByteArrayLiteral("UTF-32LE");
+        return result;
+    }
+    if (n >= 3 && p[0] == 0xEF && p[1] == 0xBB && p[2] == 0xBF) {
+        result.bom = Bom::Utf8;
+        // UTF-8 is the implicit default — leave codecName empty.
+        return result;
+    }
+    if (n >= 2 && p[0] == 0xFF && p[1] == 0xFE) {
+        result.bom = Bom::Utf16LE;
+        result.codecName = QByteArrayLiteral("UTF-16LE");
+        return result;
+    }
+    if (n >= 2 && p[0] == 0xFE && p[1] == 0xFF) {
+        result.bom = Bom::Utf16BE;
+        result.codecName = QByteArrayLiteral("UTF-16BE");
+        return result;
+    }
+
+    // No BOM. The head is already capped by the caller (≤64 KB). Strict UTF-8
+    // validity over the head covers the common case; treat a clean head as
+    // UTF-8 (codecName empty). A multibyte sequence may straddle the head's tail
+    // boundary, so tolerate a truncated trailing sequence by trimming back to
+    // the last lead byte before validating.
+    qsizetype validLen = n;
+    while (validLen > 0 && (static_cast<unsigned char>(head[validLen - 1]) & 0xC0) == 0x80)
+        --validLen; // back over UTF-8 continuation bytes
+    if (validLen > 0 && (static_cast<unsigned char>(head[validLen - 1]) & 0x80) != 0)
+        --validLen; // back over the (possibly incomplete) lead byte
+    if (isValidUtf8(head.constData(), validLen)) {
+        result.codecName = QByteArray(); // UTF-8
+        return result;
+    }
+
+    // Fallback: uchardet on the head (already ≤64 KB).
+    uchardet_t ud = uchardet_new();
+    if (uchardet_handle_data(ud, head.constData(), static_cast<size_t>(n)) == 0) {
+        uchardet_data_end(ud);
+        const char *enc = uchardet_get_charset(ud);
+        if (enc && enc[0] != '\0') {
+            // Only accept names QTextCodec can actually resolve so the caller's
+            // lazy decode never silently falls through to Latin-1.
+            if (QTextCodec::codecForName(enc))
+                result.codecName = QByteArray(enc);
+        }
+    }
+    uchardet_delete(ud);
+    // Empty codecName == decode as UTF-8 (best effort), matching decode()'s
+    // final fallback intent without materializing the whole string here.
+    return result;
 }

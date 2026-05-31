@@ -856,3 +856,74 @@ qt_add_executable(test_recursive_tree_watcher_logic test_recursive_tree_watcher_
 target_include_directories(test_recursive_tree_watcher_logic PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(test_recursive_tree_watcher_logic PRIVATE Qt6::Core Qt6::Test)
 add_test(NAME RecursiveTreeWatcherLogic COMMAND test_recursive_tree_watcher_logic)
+
+# --- CsvTableModelInsert: structural-insert coordinate math for the CSV table
+#     preview. Proves the virtual↔physical row/column translation, the overlay
+#     re-key trap (an edited cell below/right of an insert keeps its value), the
+#     dimension growth, the empty/header-only edge cases, and a save-walk
+#     round-trip for a mid-file blank row. Pure model logic over a small mmap'd
+#     temp file — no widget. ---
+qt_add_executable(test_csv_table_model_insert test_csv_table_model_insert.cpp)
+target_include_directories(test_csv_table_model_insert PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/git
+)
+target_link_libraries(test_csv_table_model_insert PRIVATE
+    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Core5Compat Qt6::Test uchardet)
+target_sources(test_csv_table_model_insert PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/CsvTableModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/CsvTableModel.h
+    ${CMAKE_SOURCE_DIR}/src/CsvEditCommands.cpp
+    ${CMAKE_SOURCE_DIR}/src/CsvEditCommands.h
+    ${CMAKE_SOURCE_DIR}/src/CsvDocument.cpp
+    ${CMAKE_SOURCE_DIR}/src/CsvDocument.h
+    ${CMAKE_SOURCE_DIR}/src/git/FileEncodingDetector.cpp
+    ${CMAKE_SOURCE_DIR}/src/git/FileEncodingDetector.h
+)
+add_test(NAME CsvTableModelInsert COMMAND test_csv_table_model_insert)
+
+# --- CsvSortFilter: pure compute core for the CSV table preview's sort/filter
+#     view layer. Proves numeric-column detection (incl. leading-zero=text),
+#     stable numeric + lexicographic sort (asc/desc), empty/ragged sort-last,
+#     single + multi-column ANDed substring filter, combined filter+sort in one
+#     pass, identity order when no sort/filter, and the central safety property:
+#     CsvTableModel::viewRowToDataRow() is the identity when no view is active.
+#     CsvSortFilter is Qt-widget-free; the identity case links the model +
+#     document over a small mmap'd temp file. ---
+qt_add_executable(test_csv_sortfilter test_csv_sortfilter.cpp)
+target_include_directories(test_csv_sortfilter PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/git
+)
+target_link_libraries(test_csv_sortfilter PRIVATE
+    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Core5Compat Qt6::Test uchardet)
+target_sources(test_csv_sortfilter PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/CsvSortFilter.cpp
+    ${CMAKE_SOURCE_DIR}/src/CsvSortFilter.h
+    ${CMAKE_SOURCE_DIR}/src/CsvTableModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/CsvTableModel.h
+    ${CMAKE_SOURCE_DIR}/src/CsvDocument.cpp
+    ${CMAKE_SOURCE_DIR}/src/CsvDocument.h
+    ${CMAKE_SOURCE_DIR}/src/git/FileEncodingDetector.cpp
+    ${CMAKE_SOURCE_DIR}/src/git/FileEncodingDetector.h
+)
+add_test(NAME CsvSortFilter COMMAND test_csv_sortfilter)
+
+# --- CsvFilterStrip: pure field-list reconciliation core for the CSV preview's
+#     per-column filter strip. Locks down the position-aware splice (insert AT
+#     index, not tail), the destroy+erase on remove (QPointer proves no widget
+#     leak), and the count reconcile used by the reset/rebuild path. The
+#     CsvPreviewWidget handlers delegate to these functions, so the test covers
+#     the shipping path. Widget-free apart from QLineEdit, so it links only the
+#     core .cpp + Qt Widgets (no document/model/uchardet). ---
+qt_add_executable(test_csv_filter_strip test_csv_filter_strip.cpp)
+target_include_directories(test_csv_filter_strip PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+target_link_libraries(test_csv_filter_strip PRIVATE
+    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
+target_sources(test_csv_filter_strip PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/CsvFilterStrip.cpp
+    ${CMAKE_SOURCE_DIR}/src/CsvFilterStrip.h
+)
+add_test(NAME CsvFilterStrip COMMAND test_csv_filter_strip)

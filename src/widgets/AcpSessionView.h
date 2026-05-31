@@ -19,6 +19,8 @@
 #ifndef ACP_SESSION_VIEW_H
 #define ACP_SESSION_VIEW_H
 
+#include <QElapsedTimer>
+#include <QFont>
 #include <QHash>
 #include <QPointer>
 #include <QString>
@@ -172,12 +174,35 @@ private:
     void resetElapsed();
     void onElapsedTick();
 
+    // Input-placeholder busy clock. Distinct from the transcript-tail
+    // heartbeats above: those reset on every structural event, whereas this
+    // measures the *whole* wall span during which any agent is working. The
+    // union of "the ACP turn is processing" OR "a goal is active" drives it —
+    // the clock starts on the idle→busy edge and only stops (restoring the
+    // resting "Send a message" placeholder) once BOTH are idle again, so a
+    // second agent starting, or one finishing mid-run, never restarts it.
+    void refreshBusyPlaceholder();
+    void updateBusyPlaceholderText();
+
+    // Single chokepoint for every chat-input placeholder change. Sets the text
+    // AND invalidates the viewport when the placeholder is on screen (empty
+    // document) — QPlainTextEdit::setPlaceholderText() does not reliably
+    // repaint on a pure text change, so routing all transitions through here
+    // makes it impossible for a future placeholder change to silently freeze.
+    void setInputPlaceholder(const QString &text);
+
     // Push the user's saved per-agent preferences (model/mode/effort) into
     // the running session. Called once per session after metadata first
     // populates the available catalogs.
     void applySavedPreferences();
 
     void applyChatFont();
+
+    // Build the chat (Default Font) QFont from settings, with the hinting
+    // policy applied. Used to stamp every bubble explicitly (styled widgets
+    // don't inherit setFont) and the input. Returns a sensible fallback when
+    // settings are unavailable (test harness).
+    QFont chatFont() const;
 
     // Slash-command completion popup.
     void showCommandPopup();
@@ -245,6 +270,16 @@ private:
     QTimer *m_goalElapsedTimer = nullptr;
     int m_goalElapsedMs = 0;
     int m_goalTerminalGeneration = 0;
+
+    // Input-placeholder busy clock (see refreshBusyPlaceholder). m_busyClock is
+    // monotonic and only re-started on the idle→busy edge; the 1 s timer repaints
+    // the placeholder. m_goalRunning mirrors the attached goal's active state
+    // (the view has no direct GoalAgent pointer, so the dock-driven
+    // setGoalActive/setGoalTerminal/clearGoalStatus calls toggle it).
+    QTimer *m_busyPlaceholderTimer = nullptr;
+    QElapsedTimer m_busyClock;
+    bool m_busyPlaceholderActive = false;
+    bool m_goalRunning = false;
 
     // Tracking
     QHash<int, AcpMessageWidget *> m_messageWidgets;

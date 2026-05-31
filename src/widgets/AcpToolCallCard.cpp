@@ -19,6 +19,7 @@
 #include "AcpToolCallCard.h"
 
 #include <QAbstractTextDocumentLayout>
+#include <QFont>
 #include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QJsonDocument>
@@ -70,7 +71,26 @@ struct DiffPalette
     QString dim;
     QString border;
     QString headerBg;
+    // CSS font declaration ("font-family:...; font-size:...;") for code/diff
+    // bodies, derived from the chat (Default Font). Always ends with a
+    // monospace fallback. Empty falls back to the hardcoded Consolas default.
+    QString fontCss;
 };
+
+// Build a CSS font declaration from a QFont for the tool-call body HTML. Always
+// appends a monospace fallback so code/diff stays fixed-width even if the chat
+// font has no monospace glyphs. Family is single-quoted to survive spaces.
+QString fontCssDecl(const QFont &font)
+{
+    QString decl = QStringLiteral("font-family: '%1', monospace;")
+                       .arg(font.family());
+    if (font.pointSizeF() > 0.0) {
+        decl += QStringLiteral(" font-size: %1pt;").arg(font.pointSizeF());
+    } else if (font.pixelSize() > 0) {
+        decl += QStringLiteral(" font-size: %1px;").arg(font.pixelSize());
+    }
+    return decl;
+}
 
 QVector<DiffLine> lcsLineDiff(const QStringList &oldLines, const QStringList &newLines)
 {
@@ -148,11 +168,14 @@ QString renderDiffRow(const DiffLine &line, const DiffPalette &pal, int numWidth
     }
     return QStringLiteral(
                "<div style=\"background:%1; color:%2; white-space:pre-wrap; "
-               "font-family: Consolas, monospace; padding: 0 4px;\">"
+               "%8 padding: 0 4px;\">"
                "<span style=\"color:%3;\">%4</span> "
                "<span style=\"color:%5;\">%6</span> %7</div>")
         .arg(bg, pal.text, pal.dim, padNumber(displayNum, numWidth),
-             markColor, mark, line.text.toHtmlEscaped());
+             markColor, mark, line.text.toHtmlEscaped(),
+             pal.fontCss.isEmpty()
+                 ? QStringLiteral("font-family: Consolas, monospace;")
+                 : pal.fontCss);
 }
 
 QString renderDiffBlock(const QJsonObject &block, const DiffPalette &pal)
@@ -199,8 +222,11 @@ QString renderDiffBlock(const QJsonObject &block, const DiffPalette &pal)
     html += QStringLiteral(
                 "<div style=\"background: %1; color: %2; padding: 4px 6px; "
                 "border: 1px solid %3; border-radius: 4px; "
-                "font-family: Consolas, monospace; margin-bottom: 4px;\">%4</div>")
-                .arg(pal.headerBg, pal.text, pal.border, path.toHtmlEscaped());
+                "%5 margin-bottom: 4px;\">%4</div>")
+                .arg(pal.headerBg, pal.text, pal.border, path.toHtmlEscaped(),
+                     pal.fontCss.isEmpty()
+                         ? QStringLiteral("font-family: Consolas, monospace;")
+                         : pal.fontCss);
     html += QStringLiteral("<div style=\"border: 1px solid %1; border-radius: 4px;\">")
                 .arg(pal.border);
     for (const auto &row : rows) {
@@ -549,10 +575,16 @@ void AcpToolCallCard::rerenderBody()
             pal.color(QPalette::PlaceholderText).name(),
             pal.color(QPalette::Mid).name(),
             pal.color(QPalette::AlternateBase).name(),
+            m_chatFontSet ? fontCssDecl(m_chatFont) : QString(),
         };
         // HTML mode: mix text + image + diff blocks into one document.
         QString html;
         bool decodedSomething = false;
+        // Font declaration for <pre> code blocks: chat font if set, else the
+        // hardcoded Consolas fallback (keeps fixed-width when no pref present).
+        const QString codeCss = dpal.fontCss.isEmpty()
+            ? QStringLiteral("font-family: Consolas, monospace;")
+            : dpal.fontCss;
         for (const auto &v : m_content) {
             if (!v.isObject()) continue;
             const QJsonObject obj = v.toObject();
@@ -560,10 +592,10 @@ void AcpToolCallCard::rerenderBody()
             if (type == QLatin1String("text")) {
                 const QString t = obj.value(QStringLiteral("text")).toString();
                 if (!t.isEmpty() && !isEmptyContentJson(t)) {
-                    html += QStringLiteral("<pre style=\"font-family: Consolas, monospace; "
-                                           "color: %1; white-space: pre-wrap; "
-                                           "margin: 0 0 4px 0;\">%2</pre>")
-                                .arg(dpal.text, t.toHtmlEscaped());
+                    html += QStringLiteral("<pre style=\"%1 "
+                                           "color: %2; white-space: pre-wrap; "
+                                           "margin: 0 0 4px 0;\">%3</pre>")
+                                .arg(codeCss, dpal.text, t.toHtmlEscaped());
                     decodedSomething = true;
                 }
             } else if (type == QLatin1String("image")) {
@@ -583,10 +615,10 @@ void AcpToolCallCard::rerenderBody()
                     const QString clean = sanitizeToolText(
                         inner.value(QStringLiteral("text")).toString());
                     if (!clean.isEmpty() && !isEmptyContentJson(clean)) {
-                        html += QStringLiteral("<pre style=\"font-family: Consolas, monospace; "
-                                               "color: %1; white-space: pre-wrap; "
-                                               "margin: 0 0 4px 0;\">%2</pre>")
-                                    .arg(dpal.text, clean.toHtmlEscaped());
+                        html += QStringLiteral("<pre style=\"%1 "
+                                               "color: %2; white-space: pre-wrap; "
+                                               "margin: 0 0 4px 0;\">%3</pre>")
+                                    .arg(codeCss, dpal.text, clean.toHtmlEscaped());
                         decodedSomething = true;
                     }
                 } else if (innerType == QLatin1String("image")) {
@@ -681,7 +713,16 @@ void AcpToolCallCard::refitBodyHeight()
         }
     }
     int cardH = marginT + marginB + headerH;
-    if (m_body->isVisible()) {
+    // Gate on the LOGICAL expand state, not m_body->isVisible(): a freshly
+    // inserted/auto-expanded card can still be unshown (parent not yet painted)
+    // when the synchronous + deferred refit runs, so isVisible() reads false
+    // even though the body WILL paint once the card is shown. That under-pins
+    // the frame to header-only height while the body keeps its measured fixed
+    // height — the body then overflows the too-short frame and overlaps the next
+    // card in the transcript (the diff cards' overlap bug). m_collapsed is
+    // authoritative and independent of show timing, so the height stays correct
+    // whether or not the card is on screen at measure time.
+    if (!m_collapsed) {
         cardH += (m_outer ? m_outer->spacing() : 0) + bodyH;
     }
     setFixedHeight(cardH);
@@ -727,4 +768,24 @@ void AcpToolCallCard::setCollapsed(bool collapsed)
     // expanded geometry settles — otherwise the diff clips on first expand.
     refitBodyHeight();
     if (!collapsed) scheduleRefit();
+}
+
+void AcpToolCallCard::setChatFont(const QFont &font)
+{
+    m_chatFont = font;
+    m_chatFontSet = true;
+
+    // Styled widgets don't inherit a parent's setFont(), so push it down:
+    // - title/status QLabels: direct setFont (they live in the stylesheet'd frame)
+    // - body QTextBrowser: document defaultFont drives plain-text mode and the
+    //   font-family-less fallback <pre>; HTML mode re-renders below threading
+    //   the font's family/size into the inline CSS (see fontCssDecl).
+    if (m_statusIcon) m_statusIcon->setFont(font);
+    if (m_titleLabel) m_titleLabel->setFont(font);
+    if (m_body) m_body->document()->setDefaultFont(font);
+
+    // Re-render so the HTML branch re-bakes the font, then refit under the new
+    // metrics. rerenderBody() already calls refitBodyHeight()/scheduleRefit().
+    refreshHeader(); // re-elide title under the new font metrics
+    rerenderBody();
 }

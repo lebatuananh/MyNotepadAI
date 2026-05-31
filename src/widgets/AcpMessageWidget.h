@@ -19,6 +19,7 @@
 #ifndef ACP_MESSAGE_WIDGET_H
 #define ACP_MESSAGE_WIDGET_H
 
+#include <QFont>
 #include <QFrame>
 #include <QPixmap>
 #include <QString>
@@ -63,6 +64,14 @@ public:
     void setFromGoalAgent(bool goal);
     bool isFromGoalAgent() const { return m_fromGoalAgent; }
 
+    // Apply the chat (Default Font) typeface explicitly. Required because this
+    // bubble and its inner QTextBrowser both carry a stylesheet, and styled
+    // widgets do NOT inherit a parent's setFont() — Qt re-resolves their font
+    // from the application default. So the transcript host's font never reaches
+    // the bubble body; we must push it down per-widget (QTextDocument default
+    // font + user QLabels) here.
+    void setChatFont(const QFont &font);
+
     bool isCollapsed() const { return m_collapsed; }
     QString role() const { return m_role; }
     QString plainText() const { return m_text; }
@@ -74,6 +83,9 @@ protected:
     // we need to re-fit, because Qt does not auto-relayout content widgets on
     // font inheritance alone.
     void changeEvent(QEvent *event) override;
+    // Watches the assistant browser's viewport to reveal/position the per-code-
+    // block copy button on hover and hide it on leave.
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     void rerender();
@@ -82,14 +94,47 @@ private:
     void scheduleRerender();
     void flushRerender();
 
+    // Assistant code-block affordances. Code (fenced `<pre>`) blocks get a
+    // distinct inset surface; a single reusable hover button copies the block
+    // under the cursor. Built lazily on first assistant render.
+    void ensureCopyButton();
+    void rebuildCopyIcon();
+    void scanCodeRegions();       // map fenced-code doc ranges + raw text
+    void updateCopyButtonForPos(const QPoint &viewportPos);
+    QString codeStyleSheet() const; // pre/code CSS with chat font + palette
+    // Post-process the assistant document's code fragments: rewrite the
+    // monospace family Qt bakes during setMarkdown to the chat family, loosen
+    // line spacing inside code blocks, and add top/bottom block margins around
+    // each fenced region so it separates from adjacent prose. Runs on the
+    // document model (reliable) where QTextDocument's CSS subset is not.
+    void styleCodeInDocument();
+    // One fenced code region: document character range + its raw text.
+    struct CodeRegion { int start; int end; QString text; };
+
     QString m_role;
     QString m_text;
     bool m_collapsed = false;
     bool m_fromGoalAgent = false;
 
+    // Chat (Default Font) typeface, pushed in via setChatFont(). Held so that
+    // content created/re-rendered after the initial setFont() (streamed chunks,
+    // lazily-built user text blocks) is stamped with the same font. Default-
+    // constructed until the first setChatFont() call.
+    QFont m_chatFont;
+    bool m_chatFontSet = false;
+
     QTextBrowser *m_browser = nullptr;     // assistant + non-thought rendered widgets
     QToolButton *m_thoughtHeader = nullptr; // thought role
     QVBoxLayout *m_layout = nullptr;
+
+    // Hover copy button for fenced code blocks (assistant role only). One
+    // reusable button parented to the browser viewport, repositioned to the
+    // top-right of the code region under the cursor. m_codeRegions is rebuilt
+    // on every assistant render; m_hoverCodeIndex tracks which region the
+    // button currently serves (-1 = hidden).
+    QToolButton *m_copyCodeBtn = nullptr;
+    QVector<CodeRegion> m_codeRegions;
+    int m_hoverCodeIndex = -1;
     // Debounce timer for assistant markdown re-renders. setMarkdown on a long
     // table-bearing payload is O(N) per call; without debouncing, every
     // streamed chunk re-parses the whole document and the UI thread stalls.

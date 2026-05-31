@@ -330,29 +330,34 @@ bool AiAgentDock::attachGoalAgent(GoalAgent *goal)
         emit goalDebugLogAppended(entry);
     });
     connect(m_goalAgent, &GoalAgent::statusChanged, this, [this](GoalAgent::Status s) {
-        if (!m_model) return;
+        // The view's goal-status update drives both the on-screen status row
+        // AND the input's busy-placeholder clock (m_goalRunning), so it MUST
+        // run on every transition independent of m_model — otherwise a goal
+        // that reaches a terminal status while the model is detached (mid
+        // rebind) would leave the placeholder stuck at "Agent is working…".
+        // Only the appendSystemMessage transcript notes are gated on m_model.
         switch (s) {
         case GoalAgent::Active:
-            m_model->appendSystemMessage(tr("⟡ Goal started"));
             if (m_view && m_goalAgent) {
                 m_view->setGoalActive(
                     m_goalAgent->currentCriterionIndex() + 1,
                     m_goalAgent->criteria().size(),
                     0, m_goalAgent->maxIterations());
             }
+            if (m_model) m_model->appendSystemMessage(tr("⟡ Goal started"));
             break;
         case GoalAgent::Achieved:
-            m_model->appendSystemMessage(tr("✓ Goal achieved: %1").arg(
-                m_goalAgent ? m_goalAgent->lastActionText().left(200) : QString()));
             if (m_view) m_view->setGoalTerminal(tr("Goal achieved"));
+            if (m_model) m_model->appendSystemMessage(tr("✓ Goal achieved: %1").arg(
+                m_goalAgent ? m_goalAgent->lastActionText() : QString()));
             break;
         case GoalAgent::Cancelled:
-            m_model->appendSystemMessage(tr("⊘ Goal cancelled"));
             if (m_view) m_view->setGoalTerminal(tr("Goal stopped"));
+            if (m_model) m_model->appendSystemMessage(tr("⊘ Goal cancelled"));
             break;
         case GoalAgent::Failed:
-            m_model->appendSystemMessage(tr("✗ Goal failed"));
             if (m_view) m_view->setGoalTerminal(tr("Goal failed"));
+            if (m_model) m_model->appendSystemMessage(tr("✗ Goal failed"));
             break;
         default:
             break;

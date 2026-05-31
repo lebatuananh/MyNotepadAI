@@ -38,6 +38,7 @@
 #include <QClipboard>
 #include <QComboBox>
 #include <QDialog>
+#include <QElapsedTimer>
 #include <QEvent>
 #include <QFileDialog>
 #include <QFont>
@@ -566,6 +567,15 @@ void AcpSessionView::buildUi()
         }
     });
 
+    // Input-placeholder busy clock — repaints the elapsed-time placeholder once
+    // a second while any agent is working. The underlying span is measured by
+    // the monotonic m_busyClock; this timer only triggers the text refresh, so
+    // a missed tick (event-loop stall) self-corrects on the next fire.
+    m_busyPlaceholderTimer = new QTimer(this);
+    m_busyPlaceholderTimer->setInterval(1000);
+    connect(m_busyPlaceholderTimer, &QTimer::timeout,
+            this, &AcpSessionView::updateBusyPlaceholderText);
+
     btnRow->addWidget(m_cancelBtn);
     btnRow->addWidget(m_sendBtn);
 
@@ -624,6 +634,8 @@ void AcpSessionView::buildUi()
         connect(settings, &ApplicationSettings::fontNameChanged,
                 this, &AcpSessionView::applyChatFont);
         connect(settings, &ApplicationSettings::fontSizeChanged,
+                this, &AcpSessionView::applyChatFont);
+        connect(settings, &ApplicationSettings::fontHintingChanged,
                 this, &AcpSessionView::applyChatFont);
     }
     applyChatFont();
@@ -722,6 +734,7 @@ void AcpSessionView::hydrateFromModel()
             && entry.messageIndex < messages.size()) {
             const AcpMessage &msg = messages.at(entry.messageIndex);
             auto *w = new AcpMessageWidget(msg.role, m_transcriptHost);
+            w->setChatFont(chatFont()); // styled widget: must set font explicitly
             if (msg.fromGoalAgent) {
                 w->setFromGoalAgent(true);
             }
@@ -732,6 +745,7 @@ void AcpSessionView::hydrateFromModel()
             auto it = toolCalls.find(entry.toolCallId);
             if (it != toolCalls.end()) {
                 auto *card = new AcpToolCallCard(it.value(), m_transcriptHost);
+                card->setChatFont(chatFont()); // styled widget: must set font explicitly
                 insertTimelineWidget(card);
                 m_toolCallCards.insert(entry.toolCallId, card);
             }
@@ -925,6 +939,7 @@ void AcpSessionView::appendMessageWidget(int idx)
     const AcpMessage &msg = m_model->messages().at(idx);
 
     auto *w = new AcpMessageWidget(msg.role, m_transcriptHost);
+    w->setChatFont(chatFont()); // styled widget: must set font explicitly
     if (msg.fromGoalAgent) {
         w->setFromGoalAgent(true);
     }
@@ -1018,6 +1033,7 @@ void AcpSessionView::onToolCallAddedOrUpdated(const QString &toolCallId)
     auto *card = m_toolCallCards.value(toolCallId, nullptr);
     if (!card) {
         card = new AcpToolCallCard(tc, m_transcriptHost);
+        card->setChatFont(chatFont()); // styled widget: must set font explicitly
         insertTimelineWidget(card);
         m_toolCallCards.insert(toolCallId, card);
         m_currentGroupCards.append(card);
@@ -1197,6 +1213,10 @@ void AcpSessionView::onIsProcessingChanged(bool processing)
         }
     }
     if (m_planWidget) m_planWidget->setAgentIdle(!processing);
+
+    // Recompute the input busy-placeholder against the new ACP state (it also
+    // depends on m_goalRunning, so the union is resolved inside).
+    refreshBusyPlaceholder();
 }
 
 void AcpSessionView::onTurnEnded(int groupId)
@@ -1308,6 +1328,8 @@ QStringList AcpSessionView::goalDebugLog() const
 void AcpSessionView::setGoalActive(int criterionIndex, int totalCriteria, int iteration, int maxIterations)
 {
     if (!m_goalStatusRow) return;
+    m_goalRunning = true;
+    refreshBusyPlaceholder();
     QString text;
     if (totalCriteria > 1) {
         text = tr("Goal %1/%2 · iter %3/%4")
@@ -1342,6 +1364,8 @@ void AcpSessionView::setGoalActive(int criterionIndex, int totalCriteria, int it
 void AcpSessionView::setGoalTerminal(const QString &statusText)
 {
     if (!m_goalStatusRow) return;
+    m_goalRunning = false;
+    refreshBusyPlaceholder();
     m_goalStatusLabel->setText(statusText);
     m_goalStopBtn->hide();
     m_goalStatusRow->show();
@@ -1360,6 +1384,8 @@ void AcpSessionView::setGoalTerminal(const QString &statusText)
 void AcpSessionView::clearGoalStatus()
 {
     if (!m_goalStatusRow) return;
+    m_goalRunning = false;
+    refreshBusyPlaceholder();
     m_goalStatusRow->hide();
     if (m_goalElapsedTimer) m_goalElapsedTimer->stop();
     if (m_goalElapsedLabel) m_goalElapsedLabel->hide();
@@ -1550,6 +1576,63 @@ void AcpSessionView::onElapsedTick()
         const int whole = m_elapsedMs / 1000;
         const int tenths = (m_elapsedMs % 1000) / 100;
         m_elapsedLabel->setText(QStringLiteral("%1.%2s").arg(whole).arg(tenths));
+    }
+}
+
+void AcpSessionView::refreshBusyPlaceholder()
+{
+    if (!m_input) return;
+
+    // Union of every running-agent surface. Either an in-flight ACP turn or an
+    // active goal keeps the input "busy"; the placeholder reflects that union,
+    // not whichever finished last.
+    const bool acpBusy = m_model && m_model->isProcessing();
+    const bool busy = acpBusy || m_goalRunning;
+
+    if (busy == m_busyPlaceholderActive) {
+        // No edge — the other surface was already keeping us busy. Leave the
+        // monotonic clock untouched so the elapsed span keeps accumulating.
+        return;
+    }
+    m_busyPlaceholderActive = busy;
+
+    if (busy) {
+        m_busyClock.start();                 // idle→busy edge: anchor the clock once
+        updateBusyPlaceholderText();         // paint 0m 0s immediately, don't wait 1 s
+        m_busyPlaceholderTimer->start();
+    } else {
+        m_busyPlaceholderTimer->stop();
+        // Busy→idle edge. setInputPlaceholder() handles the viewport
+        // invalidation so the input reverts to the idle text immediately
+        // instead of staying frozen on the last "Agent is working… (Xm Ys)".
+        setInputPlaceholder(tr("Send a message"));
+    }
+}
+
+void AcpSessionView::updateBusyPlaceholderText()
+{
+    if (!m_input || !m_busyPlaceholderActive) return;
+    const qint64 elapsedSec = m_busyClock.elapsed() / 1000;
+    const qint64 minutes = elapsedSec / 60;
+    const qint64 seconds = elapsedSec % 60;
+    setInputPlaceholder(tr("Agent is working… (%1m %2s)").arg(minutes).arg(seconds));
+}
+
+void AcpSessionView::setInputPlaceholder(const QString &text)
+{
+    if (!m_input) return;
+    m_input->setPlaceholderText(text);
+    // QPlainTextEdit::setPlaceholderText() does not reliably invalidate the
+    // viewport on a pure text change (its internal repaint is conditional and
+    // varies across Qt 6.5↔6.10), so without this poke a placeholder transition
+    // stays frozen on whatever was last painted by an unrelated relayout. The
+    // placeholder is drawn in the viewport's paintEvent — invalidate it
+    // directly, but only when it's actually on screen (empty document); when
+    // the user has typed text the placeholder is hidden and Qt repaints the
+    // content edit itself. Routed through one helper so no transition can skip
+    // the poke. At most one repaint per second while busy — negligible cost.
+    if (m_input->document()->isEmpty()) {
+        m_input->viewport()->update();
     }
 }
 
@@ -1787,14 +1870,41 @@ void AcpSessionView::rebuildAttachIcon()
                                     palette().color(QPalette::WindowText)));
 }
 
-void AcpSessionView::applyChatFont()
+QFont AcpSessionView::chatFont() const
 {
     auto *settings = appSettings();
-    if (!settings) return;
+    QFont f = settings ? QFont(settings->fontName(), settings->fontSize())
+                       : QFont();
+    // Mirror the editor's glyph-hinting policy: these are plain Qt widgets, so
+    // Scintilla's platform-layer flag doesn't reach them — set it on the QFont
+    // directly. Without it, thin fonts (e.g. Lilex) look blurry here while the
+    // Scintilla editor looks sharp. See EditorManager / PlatQt for the editor side.
+    f.setHintingPreference(settings && !settings->fontHinting()
+        ? QFont::PreferNoHinting
+        : QFont::PreferFullHinting);
+    return f;
+}
 
-    QFont f(settings->fontName(), settings->fontSize());
+void AcpSessionView::applyChatFont()
+{
+    if (!appSettings()) return;
+
+    const QFont f = chatFont();
+    // The transcript host carries no stylesheet, so its setFont() is a cheap,
+    // harmless default for any unstyled descendants. But the message bubbles
+    // (AcpMessageWidget) AND their inner QTextBrowsers are stylesheet'd, and Qt
+    // does NOT propagate an inherited font into a styled widget — so we must
+    // push the font into each bubble explicitly via setChatFont().
     if (m_transcriptHost) m_transcriptHost->setFont(f);
     if (m_input) m_input->setFont(f);
+
+    for (AcpMessageWidget *w : m_messageWidgets) {
+        if (w) w->setChatFont(f);
+    }
+    if (m_activeThought) m_activeThought->setChatFont(f);
+    for (AcpToolCallCard *c : m_toolCallCards) {
+        if (c) c->setChatFont(f);
+    }
 }
 
 bool AcpSessionView::inputKeyEventIsSubmit(QKeyEvent *ke) const

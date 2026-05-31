@@ -19,6 +19,7 @@
 #ifndef ACP_TOOL_CALL_CARD_H
 #define ACP_TOOL_CALL_CARD_H
 
+#include <QFont>
 #include <QFrame>
 #include <QJsonObject>
 #include <QString>
@@ -47,6 +48,15 @@ public:
     bool isCollapsed() const { return m_collapsed; }
     bool shouldPreserveExpanded() const { return m_userToggled || m_autoExpandedForDiff; }
 
+    // Apply the chat (Default Font) typeface explicitly. Required because this
+    // card and its inner QTextBrowser both carry a stylesheet, and styled
+    // widgets do NOT inherit a parent's setFont() — Qt re-resolves their font
+    // from the application default. So the transcript host's font never reaches
+    // the card; we push it down per-widget (title/status QLabels + the body
+    // QTextBrowser document font) here, and thread its family/size into the
+    // hardcoded HTML the body renders.
+    void setChatFont(const QFont &font);
+
 protected:
     void resizeEvent(QResizeEvent *event) override;
 
@@ -66,6 +76,12 @@ private:
     int m_groupId = 0;
     QJsonArray m_content;
     QJsonObject m_rawInput;
+
+    // Chat (Default Font) typeface pushed in via setChatFont(). Body HTML is
+    // re-rendered with this font's family/size; default-constructed (and unused
+    // for HTML) until the first setChatFont() call.
+    QFont m_chatFont;
+    bool m_chatFontSet = false;
 
     bool m_collapsed = false;
     bool m_userToggled = false;          // user has explicitly clicked the chevron

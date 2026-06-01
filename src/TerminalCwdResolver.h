@@ -21,6 +21,8 @@
 
 #include <QString>
 
+namespace remote { class ExecutionContext; }
+
 class TerminalCwdResolver
 {
 public:
@@ -29,6 +31,13 @@ public:
 
     static QString resolveWorkspace(const QString &workspaceRoot);
     static QString resolveFolder(const QString &activeFilePath, bool activeBufferIsFile, const QString &workspaceRoot);
+
+    // Context-aware resolution (design D11). When `ctx` is remote: NO local
+    // QFileInfo check (the path is on another machine) — require the context to
+    // be Connected and `requested` non-empty, then POSIX-normalize. When `ctx`
+    // is local or null: delegates to resolveWorkspace() so the existing local
+    // behavior is byte-for-byte preserved. Returns empty on a disabled case.
+    static QString resolveForContext(remote::ExecutionContext *ctx, const QString &requested);
 };
 
 #endif

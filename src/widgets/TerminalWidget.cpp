@@ -20,6 +20,8 @@
 
 #include "TerminalCellSource.h"
 
+#include "remote/ExecutionContext.h"
+
 #include "iptyprocess.h"
 #include "ptyqt.h"
 
@@ -338,7 +340,8 @@ void TerminalWidget::updateScrollbarRange()
     }
 }
 
-bool TerminalWidget::start(const QString &shell, const QString &cwd, const QStringList &env)
+bool TerminalWidget::start(const QString &shell, const QString &cwd, const QStringList &env,
+                           remote::ExecutionContext *ctx)
 {
     if (m_pty) {
         return false;
@@ -370,7 +373,16 @@ bool TerminalWidget::start(const QString &shell, const QString &cwd, const QStri
 
     vterm_output_set_callback(m_vt, &TerminalWidget::vtermOutput, this);
 
-    m_pty = PtyQt::createPtyProcess(IPtyProcess::AutoPty);
+    // PTY backend comes from the execution context: the local context returns
+    // the IDENTICAL PtyQt object used before this change (so the read/write hot
+    // path is byte-for-byte unchanged — only this one virtual call is added),
+    // and a remote context returns an SSH-backed PTY. A null ctx falls back to
+    // a local PtyQt directly so existing callers behave exactly as before.
+    if (ctx) {
+        m_pty = ctx->createPty(this);
+    } else {
+        m_pty = PtyQt::createPtyProcess(IPtyProcess::AutoPty);
+    }
     if (!m_pty) {
         m_errorMessage = tr("Terminal: PTY backend unavailable on this platform.");
         emit spawnFailed(m_errorMessage);

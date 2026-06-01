@@ -32,7 +32,6 @@ namespace ai {
 namespace {
 
 constexpr auto kService = "NotepadAI";
-constexpr auto kAccount = "commit-message-api-key";
 
 CFStringRef cfStringFromUtf8(const char *str)
 {
@@ -53,10 +52,10 @@ QString cfErrorMessage(OSStatus status)
 
 bool CredentialStore::platformAvailable() const { return true; }
 
-bool CredentialStore::platformRetrieve(QString *outValue, QString *errorOut) const
+bool CredentialStore::platformRetrieve(const QString &account, QString *outValue, QString *errorOut) const
 {
     CFStringRef svc = cfStringFromUtf8(kService);
-    CFStringRef acc = cfStringFromUtf8(kAccount);
+    CFStringRef acc = cfStringFromUtf8(account.toUtf8().constData());
 
     const void *keys[]   = { kSecClass, kSecAttrService, kSecAttrAccount, kSecReturnData, kSecMatchLimit };
     const void *values[] = { kSecClassGenericPassword, svc, acc, kCFBooleanTrue, kSecMatchLimitOne };
@@ -92,10 +91,10 @@ bool CredentialStore::platformRetrieve(QString *outValue, QString *errorOut) con
     return true;
 }
 
-bool CredentialStore::platformStore(const QString &value, QString *errorOut)
+bool CredentialStore::platformStore(const QString &account, const QString &value, QString *errorOut)
 {
     CFStringRef svc = cfStringFromUtf8(kService);
-    CFStringRef acc = cfStringFromUtf8(kAccount);
+    CFStringRef acc = cfStringFromUtf8(account.toUtf8().constData());
     const QByteArray utf8 = value.toUtf8();
     CFDataRef data = CFDataCreate(kCFAllocatorDefault,
                                   reinterpret_cast<const UInt8 *>(utf8.constData()),
@@ -144,10 +143,10 @@ bool CredentialStore::platformStore(const QString &value, QString *errorOut)
     return true;
 }
 
-bool CredentialStore::platformClear(QString *errorOut)
+bool CredentialStore::platformClear(const QString &account, QString *errorOut)
 {
     CFStringRef svc = cfStringFromUtf8(kService);
-    CFStringRef acc = cfStringFromUtf8(kAccount);
+    CFStringRef acc = cfStringFromUtf8(account.toUtf8().constData());
     const void *keys[]   = { kSecClass, kSecAttrService, kSecAttrAccount };
     const void *values[] = { kSecClassGenericPassword, svc, acc };
     CFDictionaryRef query = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 3,

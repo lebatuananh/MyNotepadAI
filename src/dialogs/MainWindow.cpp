@@ -92,6 +92,15 @@
 #include "MiniAppRegistry.h"
 #include "EditMiniAppsDialog.h"
 
+#include "remote/ExecutionContext.h"
+#include "remote/ExecutionContextRegistry.h"
+#include "remote/LocalExecutionContext.h"
+#include "remote/RemoteExecutionContext.h"
+#include "remote/SshProfile.h"
+#include "remote/SshProfileRegistry.h"
+#include "SshConnectionManagerDialog.h"
+#include "SshConnectDialog.h"
+
 #include "FindReplaceDialog.h"
 #include "MacroRunDialog.h"
 #include "MacroSaveDialog.h"
@@ -1565,6 +1574,8 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
         }
     });
 
+    setupSshMenu();
+
     // --- Mini Apps menu ---
     m_miniAppRegistry = new MiniAppRegistry(app->getSettings());
     m_miniAppManager = new MiniAppManager(app, m_miniAppRegistry, dockedEditor, this);
@@ -2786,6 +2797,33 @@ QString MainWindow::currentWorkspaceRoot() const
 {
     FolderAsWorkspaceDock *dock = activeWorkspaceDock();
     return dock ? dock->rootPath() : QString();
+}
+
+remote::ExecutionContext *MainWindow::activeExecutionContext() const
+{
+    remote::ExecutionContextRegistry *registry =
+        app ? app->getExecutionContextRegistry() : nullptr;
+    if (!registry) {
+        return nullptr; // very early startup; callers null-check
+    }
+
+    // If the active workspace is SSH-backed (its rootPath is an ssh:// URI) and
+    // that profile has a live remote context, return it; otherwise the shared
+    // local context. Mirrors activeWorkspaceDock()'s resolution. (Phase 1 does
+    // not yet write workspace ssh:// URIs from the tree, so in practice this
+    // resolves to local until Phase 2 — but the resolution path exists now.)
+    if (FolderAsWorkspaceDock *dock = activeWorkspaceDock()) {
+        const QString root = dock->rootPath();
+        if (remote::isSshUri(root)) {
+            const remote::SshUri uri = remote::parseSshUri(root);
+            if (uri.valid) {
+                if (auto *ctx = registry->remoteContext(uri.profileId)) {
+                    return ctx;
+                }
+            }
+        }
+    }
+    return registry->localContext();
 }
 
 void MainWindow::onFileIndexReady(const QString &rootKey,
@@ -4439,6 +4477,66 @@ void MainWindow::saveWorkspaceStatesOnly()
 }
 
 // --- Git Operation Wiring ---
+
+void MainWindow::setupSshMenu()
+{
+    remote::SshProfileRegistry *profiles = app ? app->getSshProfileRegistry() : nullptr;
+    remote::ExecutionContextRegistry *contexts = app ? app->getExecutionContextRegistry() : nullptr;
+
+    // Gate the SSH actions when the menu is about to show. "Open Remote
+    // Terminal" is enabled only when a remote context is currently Connected
+    // (the active SSH workspace, or the last one we connected to this session).
+    connect(ui->menuFile, &QMenu::aboutToShow, this, [this]() {
+        remote::ExecutionContext *ctx = activeExecutionContext();
+        bool remoteReady = ctx && ctx->isRemote()
+            && ctx->state() == remote::ExecutionContext::State::Connected;
+        if (!remoteReady && m_lastConnectedRemote
+            && m_lastConnectedRemote->state() == remote::ExecutionContext::State::Connected) {
+            remoteReady = true;
+        }
+        ui->actionOpenRemoteTerminal->setEnabled(remoteReady);
+    });
+
+    connect(ui->actionSshConnectionManager, &QAction::triggered, this, [this, profiles, contexts]() {
+        if (!profiles) return;
+        SshConnectionManagerDialog dlg(profiles, app ? app->getCredentialStore() : nullptr, this);
+        // When the user asks to connect from the manager, run the staged
+        // connect dialog and remember the resulting context for the terminal.
+        connect(&dlg, &SshConnectionManagerDialog::connectRequested, this,
+                [this, contexts](const QString &profileId) {
+                    if (!contexts) return;
+                    remote::RemoteExecutionContext *ctx = contexts->connect(profileId);
+                    if (!ctx) return;
+                    SshConnectDialog connectDlg(ctx, this);
+                    connectDlg.exec();
+                    if (ctx->state() == remote::ExecutionContext::State::Connected) {
+                        m_lastConnectedRemote = ctx;
+                    }
+                });
+        dlg.exec();
+    });
+
+    connect(ui->actionOpenRemoteTerminal, &QAction::triggered, this, [this]() {
+        remote::ExecutionContext *ctx = activeExecutionContext();
+        if (!ctx || !ctx->isRemote()
+            || ctx->state() != remote::ExecutionContext::State::Connected) {
+            // Fall back to the last context we connected this session.
+            ctx = m_lastConnectedRemote.data();
+        }
+        if (!ctx || !ctx->isRemote()
+            || ctx->state() != remote::ExecutionContext::State::Connected) {
+            return; // gated in aboutToShow; bail with no silent fallback
+        }
+        // Default remote cwd = lastRemotePath or remote home, normalized.
+        const QString cwd = ctx->resolveCwd(QString());
+        terminalManager->openRemoteTerminal(ctx, cwd, QString());
+    });
+
+    // Crash breadcrumbs for the new actions (the ActionAddedFilter also catches
+    // these, but wire explicitly to be robust to ordering).
+    wireActionForCrashContext(ui->actionSshConnectionManager);
+    wireActionForCrashContext(ui->actionOpenRemoteTerminal);
+}
 
 void MainWindow::setupGitOperationMenu()
 {

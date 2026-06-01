@@ -32,7 +32,6 @@ namespace ai {
 namespace {
 
 constexpr auto kService = "NotepadAI";
-constexpr auto kAccount = "commit-message-api-key";
 
 // Minimal GLib types we need without pulling in GLib headers.
 using GErrorPtr = void *;
@@ -129,7 +128,7 @@ bool CredentialStore::platformAvailable() const
     return libSecret().ok;
 }
 
-bool CredentialStore::platformRetrieve(QString *outValue, QString *errorOut) const
+bool CredentialStore::platformRetrieve(const QString &account, QString *outValue, QString *errorOut) const
 {
     auto &S = libSecret();
     if (!S.ok) {
@@ -137,10 +136,11 @@ bool CredentialStore::platformRetrieve(QString *outValue, QString *errorOut) con
         if (outValue) outValue->clear();
         return false;
     }
+    const QByteArray accountUtf8 = account.toUtf8();
     GErrorPtr err = nullptr;
     char *pw = S.lookup_sync(&S.schema, nullptr, &err,
                              "service", kService,
-                             "account", kAccount,
+                             "account", accountUtf8.constData(),
                              nullptr);
     if (err) {
         if (errorOut) *errorOut = QStringLiteral("libsecret lookup failed");
@@ -157,21 +157,22 @@ bool CredentialStore::platformRetrieve(QString *outValue, QString *errorOut) con
     return true;
 }
 
-bool CredentialStore::platformStore(const QString &value, QString *errorOut)
+bool CredentialStore::platformStore(const QString &account, const QString &value, QString *errorOut)
 {
     auto &S = libSecret();
     if (!S.ok) {
         if (errorOut) *errorOut = QStringLiteral("libsecret unavailable");
         return false;
     }
+    const QByteArray accountUtf8 = account.toUtf8();
     GErrorPtr err = nullptr;
     const QByteArray utf8 = value.toUtf8();
     const int r = S.store_sync(&S.schema, "default",
-                               "NotepadAI commit-message API key",
+                               "NotepadAI secret",
                                utf8.constData(),
                                nullptr, &err,
                                "service", kService,
-                               "account", kAccount,
+                               "account", accountUtf8.constData(),
                                nullptr);
     if (err) {
         if (errorOut) *errorOut = QStringLiteral("libsecret store failed");
@@ -181,17 +182,18 @@ bool CredentialStore::platformStore(const QString &value, QString *errorOut)
     return r != 0;
 }
 
-bool CredentialStore::platformClear(QString *errorOut)
+bool CredentialStore::platformClear(const QString &account, QString *errorOut)
 {
     auto &S = libSecret();
     if (!S.ok) {
         if (errorOut) *errorOut = QStringLiteral("libsecret unavailable");
         return false;
     }
+    const QByteArray accountUtf8 = account.toUtf8();
     GErrorPtr err = nullptr;
     S.clear_sync(&S.schema, nullptr, &err,
                  "service", kService,
-                 "account", kAccount,
+                 "account", accountUtf8.constData(),
                  nullptr);
     if (err) {
         if (errorOut) *errorOut = QStringLiteral("libsecret clear failed");

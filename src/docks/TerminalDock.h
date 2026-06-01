@@ -20,11 +20,13 @@
 #define TERMINALDOCK_H
 
 #include <QDockWidget>
+#include <QPointer>
 #include <QString>
 #include <QStringList>
 
 class QToolButton;
 class TerminalWidget;
+namespace remote { class ExecutionContext; }
 
 class TerminalDock : public QDockWidget
 {
@@ -33,6 +35,9 @@ class TerminalDock : public QDockWidget
 public:
     TerminalDock(const QString &shell, const QString &cwd, QWidget *parent = nullptr);
     TerminalDock(const QString &shell, const QString &cwd, const QString &taskCommand, const QString &taskName, const QStringList &env, QWidget *parent = nullptr);
+    // Remote terminal: the execution context is CAPTURED AT SPAWN into this dock
+    // and never re-resolved (a workspace switch must not rebase a live session).
+    TerminalDock(remote::ExecutionContext *ctx, const QString &shell, const QString &cwd, QWidget *parent = nullptr);
     ~TerminalDock() override;
 
     TerminalWidget *terminalWidget() const { return m_terminal; }
@@ -57,6 +62,9 @@ private:
     QStringList m_taskEnv;
     QString m_cwdWarning;
     QToolButton *m_restartBtn = nullptr;
+    // Captured-at-spawn execution context. Null → local terminal. A QPointer so
+    // a context torn down underneath us reads null rather than dangling.
+    QPointer<remote::ExecutionContext> m_context;
 };
 
 #endif

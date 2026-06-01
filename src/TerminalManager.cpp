@@ -32,6 +32,8 @@
 #include "iptyprocess.h"
 #include "ptyqt.h"
 
+#include "remote/ExecutionContext.h"
+
 #include <QAction>
 #include <QDir>
 #include <QFileInfo>
@@ -115,6 +117,63 @@ void TerminalManager::openTerminal(const QString &cwd)
     }
 
     auto *dock = new TerminalDock(shell, cwd, m_mainWindow);
+    DockMiddleClickCloser::install(dock);
+    wireContextMenu(dock);
+
+    QPointer<TerminalDock> p(dock);
+    m_docks.append(p);
+
+    connect(dock, &QObject::destroyed, this, [this](QObject *obj) {
+        for (int i = m_docks.size() - 1; i >= 0; --i) {
+            if (m_docks[i].isNull() || m_docks[i].data() == obj) {
+                m_docks.removeAt(i);
+            }
+        }
+    });
+
+    if (m_app) {
+        const TerminalColorScheme scheme = m_app->isEffectiveThemeDark()
+            ? TerminalColorScheme::darkScheme()
+            : TerminalColorScheme::lightScheme();
+        dock->terminalWidget()->setColorScheme(scheme);
+
+        if (m_app->getSettings()) {
+            QFont f;
+            const QString fontStr = m_app->getSettings()->terminalFont();
+            if (!fontStr.isEmpty() && f.fromString(fontStr)) {
+                dock->terminalWidget()->setTerminalFont(f);
+            } else {
+                dock->terminalWidget()->setTerminalFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+            }
+        }
+    }
+
+    TerminalDock *existing = nullptr;
+    for (const auto &d : m_docks) {
+        if (d.isNull()) continue;
+        if (d.data() == dock) continue;
+        existing = d.data();
+        break;
+    }
+
+    m_mainWindow->addDockWidget(Qt::BottomDockWidgetArea, dock);
+    if (existing) {
+        m_mainWindow->tabifyDockWidget(existing, dock);
+    }
+    dock->setVisible(true);
+    dock->raise();
+    dock->terminalWidget()->setFocus();
+}
+
+void TerminalManager::openRemoteTerminal(remote::ExecutionContext *ctx,
+                                         const QString &remoteCwd, const QString &shell)
+{
+    if (!ctx) {
+        return;
+    }
+    // No local PTY probe — the backend is an SSH channel on `ctx`. Pass an empty
+    // shell through as-is so SshPtyProcess defaults to the remote $SHELL.
+    auto *dock = new TerminalDock(ctx, shell, remoteCwd, m_mainWindow);
     DockMiddleClickCloser::install(dock);
     wireContextMenu(dock);
 

@@ -927,3 +927,112 @@ target_sources(test_csv_filter_strip PRIVATE
     ${CMAKE_SOURCE_DIR}/src/CsvFilterStrip.h
 )
 add_test(NAME CsvFilterStrip COMMAND test_csv_filter_strip)
+
+# --- SshProfileRegistry: profile persist/load round-trip + ssh:// URI parse/format ---
+qt_add_executable(test_ssh_profile_registry test_ssh_profile_registry.cpp)
+target_include_directories(test_ssh_profile_registry PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test_ssh_profile_registry PRIVATE Qt6::Core Qt6::Test)
+target_sources(test_ssh_profile_registry PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/remote/SshProfile.h
+    ${CMAKE_SOURCE_DIR}/src/remote/SshProfileRegistry.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/SshProfileRegistry.h
+)
+add_test(NAME SshProfileRegistry COMMAND test_ssh_profile_registry)
+
+# --- ExecutionContext resolver: local vs remote resolveCwd + the context-aware
+#     TerminalCwdResolver overload (remote path NOT stat'd against local disk;
+#     local behavior byte-for-byte unchanged). LocalExecutionContext pulls in
+#     GitProcessRunner + libptyqt (createGitRunner/createPty seams), hence those
+#     sources/libs even though the tested methods are pure. ---
+qt_add_executable(test_execution_context_resolver test_execution_context_resolver.cpp)
+target_include_directories(test_execution_context_resolver PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/git
+    ${CMAKE_SOURCE_DIR}/thirdparty/libptyqt
+)
+target_link_libraries(test_execution_context_resolver PRIVATE
+    Qt6::Core Qt6::Gui Qt6::Test libptyqt)
+target_sources(test_execution_context_resolver PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/TerminalCwdResolver.cpp
+    ${CMAKE_SOURCE_DIR}/src/TerminalCwdResolver.h
+    ${CMAKE_SOURCE_DIR}/src/remote/ExecutionContext.h
+    ${CMAKE_SOURCE_DIR}/src/remote/IFileSystemBackend.h
+    ${CMAKE_SOURCE_DIR}/src/remote/LocalExecutionContext.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/LocalExecutionContext.h
+    ${CMAKE_SOURCE_DIR}/src/git/GitProcessRunner.cpp
+    ${CMAKE_SOURCE_DIR}/src/git/GitProcessRunner.h
+)
+add_test(NAME ExecutionContextResolver COMMAND test_execution_context_resolver)
+
+# --- CredentialStore keyed API: keyed store/retrieve/clear + the API-key
+#     wrappers' byte-for-byte equivalence. Uses the real platform backend, so
+#     skips gracefully when no usable OS keychain is present (headless CI).
+#     QTEST_MAIN (QApplication) because the Windows backend reads settings via
+#     a possible ApplicationSettings child. ---
+qt_add_executable(test_credential_store_keyed test_credential_store_keyed.cpp)
+target_include_directories(test_credential_store_keyed PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/ai
+)
+target_link_libraries(test_credential_store_keyed PRIVATE
+    Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
+target_sources(test_credential_store_keyed PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/ApplicationSettings.cpp
+    ${CMAKE_SOURCE_DIR}/src/ApplicationSettings.h
+    ${CMAKE_SOURCE_DIR}/src/ai/CredentialStore.h
+    ${CMAKE_SOURCE_DIR}/src/ai/CredentialStore_Common.cpp
+)
+if(WIN32)
+    target_sources(test_credential_store_keyed PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/ai/CredentialStore_Windows.cpp)
+    target_link_libraries(test_credential_store_keyed PRIVATE crypt32)
+elseif(APPLE)
+    target_sources(test_credential_store_keyed PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/ai/CredentialStore_Mac.mm)
+    target_link_libraries(test_credential_store_keyed PRIVATE
+        "-framework Security" "-framework CoreFoundation")
+else()
+    target_sources(test_credential_store_keyed PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/ai/CredentialStore_Linux.cpp)
+endif()
+add_test(NAME CredentialStoreKeyed COMMAND test_credential_store_keyed)
+
+# --- SshSessionWorker (offline): the design's correctness-critical invariants
+#     driven by FakeSshTransport + pumpForTest() — auth state machine, host-key
+#     gate, FIFO channel queue at cap (D5), round-robin anti-starvation (D3),
+#     write-EAGAIN no-spin / notifier-off-when-drained (D4), connection-loss
+#     cleanup (D8). No network, no sshd — CI needs no SSH server. ---
+qt_add_executable(test_ssh_session_worker test_ssh_session_worker.cpp)
+target_include_directories(test_ssh_session_worker PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/remote
+)
+target_link_libraries(test_ssh_session_worker PRIVATE Qt6::Core Qt6::Test)
+target_sources(test_ssh_session_worker PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/remote/ISshTransport.h
+    ${CMAKE_SOURCE_DIR}/src/remote/SshProfile.h
+    ${CMAKE_SOURCE_DIR}/src/remote/SshSessionWorker.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/SshSessionWorker.h
+    ${CMAKE_SOURCE_DIR}/src/remote/SshHostKeyStore.cpp
+    ${CMAKE_SOURCE_DIR}/src/remote/SshHostKeyStore.h
+)
+add_test(NAME SshSessionWorker COMMAND test_ssh_session_worker)
+
+# --- Optional: real-localhost-sshd smoke test of Libssh2Transport end-to-end.
+#     Excluded from CI (needs a live sshd + libssh2 vendored). Enable with
+#     -DNOTEPADAI_SSH_INTEGRATION=ON and the env NOTEPADAI_SSH_TEST_HOST/USER. ---
+option(NOTEPADAI_SSH_INTEGRATION "Build the localhost-sshd SSH integration smoke test" OFF)
+if(NOTEPADAI_SSH_INTEGRATION AND EXISTS ${CMAKE_SOURCE_DIR}/tests/test_ssh_integration.cpp)
+    qt_add_executable(test_ssh_integration test_ssh_integration.cpp)
+    target_include_directories(test_ssh_integration PRIVATE
+        ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/src/remote)
+    target_link_libraries(test_ssh_integration PRIVATE Qt6::Core Qt6::Test libssh2)
+    target_sources(test_ssh_integration PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/remote/Libssh2Transport.cpp
+        ${CMAKE_SOURCE_DIR}/src/remote/Libssh2Transport.h
+    )
+    if(WIN32)
+        target_link_libraries(test_ssh_integration PRIVATE ws2_32)
+    endif()
+    add_test(NAME SshIntegration COMMAND test_ssh_integration)
+endif()

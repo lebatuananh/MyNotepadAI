@@ -69,16 +69,36 @@ public:
     // Linux). When false, UI should show a hint that env override is required.
     bool isBackendAvailable() const;
 
+    // --- Keyed secret API ----------------------------------------------------
+    //
+    // General-purpose OS-keychain storage keyed by an arbitrary account name.
+    // Used for SSH secrets under the schema `ssh-profile:<profileId>:<kind>`
+    // where `kind` is `password` or `passphrase`. NEVER writes the value to
+    // settings in plaintext. Synchronous; the SSH connect path calls
+    // retrieveSecret() on the worker thread so the UI thread is not blocked.
+    //
+    // The legacy storeApiKey/retrieveApiKey/clearApiKey are thin wrappers over
+    // this keyed API using the fixed account name kApiKeyAccount, so their
+    // behavior is byte-for-byte unchanged.
+    QString retrieveSecret(const QString &key, QString *errorOut = nullptr) const;
+    bool storeSecret(const QString &key, const QString &value, QString *errorOut = nullptr);
+    bool clearSecret(const QString &key, QString *errorOut = nullptr);
+
+    // Fixed account name used by the legacy API-key wrappers. Public so a test
+    // can assert the wrapper/keyed equivalence.
+    static QString apiKeyAccount();
+
 signals:
     void apiKeyConfiguredChanged(bool configured);
 
 private:
     // Platform-impl seam: implemented in CredentialStore_{Windows,Mac,Linux}.cpp.
-    // Each returns whether the operation succeeded and writes an optional
-    // error string. retrieve returns empty value on "not found".
-    bool platformRetrieve(QString *outValue, QString *errorOut) const;
-    bool platformStore(const QString &value, QString *errorOut);
-    bool platformClear(QString *errorOut);
+    // Each returns whether the operation succeeded and writes an optional error
+    // string. `account` selects which keychain entry to act on. retrieve
+    // returns empty value on "not found".
+    bool platformRetrieve(const QString &account, QString *outValue, QString *errorOut) const;
+    bool platformStore(const QString &account, const QString &value, QString *errorOut);
+    bool platformClear(const QString &account, QString *errorOut);
     bool platformAvailable() const;
 
     // Env-override probe (sync, fast). Implemented in CredentialStore_Common.cpp.

@@ -34,6 +34,8 @@
 #include "CsvPreviewWidget.h"
 #include "ai/CommitMessageGenerator.h"
 #include "ai/CredentialStore.h"
+#include "remote/ExecutionContextRegistry.h"
+#include "remote/SshProfileRegistry.h"
 #include "ScheduledTaskRegistry.h"
 #include "ScheduledTaskRunner.h"
 #include "ThemeResolver.h"
@@ -208,6 +210,9 @@ bool NotepadNextApplication::init()
         aiAgentManager_ = new AcpAgentManager(settings, this);
         credentialStore_ = new ai::CredentialStore(this);
         commitMessageGenerator_ = new ai::CommitMessageGenerator(settings, credentialStore_, this);
+        sshProfileRegistry_ = new remote::SshProfileRegistry(settings, this);
+        executionContextRegistry_ =
+            new remote::ExecutionContextRegistry(sshProfileRegistry_, credentialStore_, this);
         sessionManager = new SessionManager(this);
 
         auto *scheduledTaskRegistry = new ScheduledTaskRegistry(settings, this);

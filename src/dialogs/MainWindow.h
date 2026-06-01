@@ -60,6 +60,7 @@ class MiniAppManager;
 class MiniAppRegistry;
 class WorkspaceFileEnumerator;
 class QuickFileOpenDialog;
+namespace remote { class ExecutionContext; }
 struct ConflictEntry;
 struct GitStatusEntry;
 struct WorkspaceStateSnapshot;
@@ -175,6 +176,12 @@ public slots:
     void switchToEditor(const ScintillaNext *editor);
 
     AiAgentDock *activeAiDock() const;
+
+    // Resolve the active ExecutionContext: the remote context for the active
+    // SSH workspace if one is connected, else the shared local context.
+    // Null-safe — always returns the local context as a fallback (never null
+    // once the app's ExecutionContextRegistry exists).
+    remote::ExecutionContext *activeExecutionContext() const;
 
 signals:
     void editorActivated(ScintillaNext *editor);
@@ -323,6 +330,12 @@ private:
     GitOperationManager *m_gitOpMgr = nullptr;
     QPointer<ConflictListDock> m_conflictListDock;
     void setupGitOperationMenu();
+
+    // SSH (Phase 1). setupSshMenu wires the File-menu SSH actions; the last
+    // successfully connected remote context drives "Open Remote Terminal" until
+    // the Phase-2 remote workspace tree resolves it via activeExecutionContext.
+    void setupSshMenu();
+    QPointer<remote::ExecutionContext> m_lastConnectedRemote;
     void showConflictListDock(const QString &repoPath);
     void openConflictMergeViewer(const ConflictEntry &entry);
 };

@@ -19,6 +19,8 @@
 #include "TerminalDock.h"
 #include "TerminalWidget.h"
 
+#include "remote/ExecutionContext.h"
+
 #include <QCloseEvent>
 #include <QDir>
 #include <QFileInfo>
@@ -49,6 +51,15 @@ TerminalDock::TerminalDock(const QString &shell, const QString &cwd, const QStri
     setWindowTitle(tr("Task — %1").arg(m_taskName));
 }
 
+TerminalDock::TerminalDock(remote::ExecutionContext *ctx, const QString &shell, const QString &cwd, QWidget *parent)
+    : QDockWidget(parent)
+    , m_initialCwd(cwd)
+    , m_shell(shell)
+    , m_context(ctx)
+{
+    init(shell, cwd);
+}
+
 void TerminalDock::init(const QString &shell, const QString &cwd)
 {
     setAttribute(Qt::WA_DeleteOnClose, true);
@@ -73,7 +84,22 @@ void TerminalDock::init(const QString &shell, const QString &cwd)
         QMessageBox::critical(this, tr("Terminal"), msg);
     });
 
-    m_terminal->start(shell, cwd, m_taskEnv);
+    // Surface SSH connection loss visibly rather than hanging silently: inject a
+    // red marked line via the same injectOutput mechanism as the task cwd
+    // warning. The captured context is the one this terminal was spawned
+    // against (never re-resolved). SshPtyProcess.finished(-1) still drives the
+    // normal process-exit path, so the terminal reaches its exited state.
+    if (m_context && m_context->isRemote()) {
+        connect(m_context, &remote::ExecutionContext::connectionLost, this,
+                [this](const QString &) {
+                    if (m_terminal) {
+                        m_terminal->injectOutput(
+                            QByteArrayLiteral("\x1b[31m\xe2\x9a\xa0 SSH connection lost\x1b[0m\r\n"));
+                    }
+                });
+    }
+
+    m_terminal->start(shell, cwd, m_taskEnv, m_context.data());
 
     if (!m_taskCommand.isEmpty()) {
         connect(m_terminal, &TerminalWidget::firstOutputReceived, this, [this]() {

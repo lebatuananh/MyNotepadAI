@@ -249,6 +249,10 @@ qt_add_executable(NotepadAI
 	dialogs/PreferencesDialog.cpp
 	dialogs/PreferencesDialog.h
 	dialogs/PreferencesDialog.ui
+	dialogs/SshConnectionManagerDialog.cpp
+	dialogs/SshConnectionManagerDialog.h
+	dialogs/SshConnectDialog.cpp
+	dialogs/SshConnectDialog.h
 	docks/AiAgentDock.cpp
 	docks/AiAgentDock.h
 	docks/DebugLogDock.cpp
@@ -458,12 +462,39 @@ qt_add_executable(NotepadAI
 	ai/CommitMessageGenerator.cpp
 	ai/PromptImprover.h
 	ai/PromptImprover.cpp
+
+	remote/ExecutionContext.h
+	remote/IFileSystemBackend.h
+	remote/LocalExecutionContext.h
+	remote/LocalExecutionContext.cpp
+	remote/RemoteExecutionContext.h
+	remote/RemoteExecutionContext.cpp
+	remote/ExecutionContextRegistry.h
+	remote/ExecutionContextRegistry.cpp
+	remote/ISshTransport.h
+	remote/Libssh2Transport.h
+	remote/Libssh2Transport.cpp
+	remote/SshChannel.h
+	remote/SshChannel.cpp
+	remote/SshSessionWorker.h
+	remote/SshSessionWorker.cpp
+	remote/SshConnection.h
+	remote/SshConnection.cpp
+	remote/SshPtyProcess.h
+	remote/SshPtyProcess.cpp
+	remote/SshProfile.h
+	remote/SshProfileRegistry.h
+	remote/SshProfileRegistry.cpp
+	remote/SshHostKeyStore.h
+	remote/SshHostKeyStore.cpp
 )
 
 # Platform-conditional CredentialStore backend + native API link.
 if(WIN32)
     target_sources(NotepadAI PRIVATE ai/CredentialStore_Windows.cpp)
-    target_link_libraries(NotepadAI PRIVATE crypt32 dbghelp)
+    # crypt32/dbghelp: existing deps. ws2_32: winsock for the SSH transport's
+    # raw socket (Libssh2Transport.cpp calls getaddrinfo/connect/closesocket).
+    target_link_libraries(NotepadAI PRIVATE crypt32 dbghelp ws2_32)
 elseif(APPLE)
     target_sources(NotepadAI PRIVATE ai/CredentialStore_Mac.mm)
     target_link_libraries(NotepadAI PRIVATE "-framework Security" "-framework CoreFoundation")
@@ -503,6 +534,7 @@ target_include_directories(NotepadAI
         ${CMAKE_CURRENT_SOURCE_DIR}/dialogs
         ${CMAKE_CURRENT_SOURCE_DIR}/docks
         ${CMAKE_CURRENT_SOURCE_DIR}/git
+        ${CMAKE_CURRENT_SOURCE_DIR}/remote
         ${CMAKE_CURRENT_SOURCE_DIR}/widgets
         ${CMAKE_CURRENT_SOURCE_DIR}
 )
@@ -550,6 +582,7 @@ target_link_libraries(NotepadAI
         xdiff
         md4c
         supertinycron
+        libssh2
 )
 
 target_compile_definitions(NotepadAI

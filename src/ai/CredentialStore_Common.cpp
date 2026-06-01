@@ -32,6 +32,11 @@ namespace {
 constexpr auto kEnvKey     = "NOTEPADAI_COMMIT_API_KEY";
 constexpr auto kEnvKeyFile = "NOTEPADAI_COMMIT_API_KEY_FILE";
 
+// The single account name the legacy API-key wrappers operate on. Must match
+// the value the platform backends historically used so existing keychain
+// entries continue to resolve byte-for-byte after this refactor.
+constexpr auto kApiKeyAccount = "commit-message-api-key";
+
 QString readFirstLine(const QString &path)
 {
     QFile f(path);
@@ -44,6 +49,11 @@ QString readFirstLine(const QString &path)
 
 CredentialStore::CredentialStore(QObject *parent) : QObject(parent) {}
 CredentialStore::~CredentialStore() = default;
+
+QString CredentialStore::apiKeyAccount()
+{
+    return QString::fromLatin1(kApiKeyAccount);
+}
 
 QString CredentialStore::envOverrideKey()
 {
@@ -84,7 +94,7 @@ QString CredentialStore::retrieveApiKey(QString *errorOut) const
 
     QString value;
     QString err;
-    const bool ok = platformRetrieve(&value, &err);
+    const bool ok = platformRetrieve(apiKeyAccount(), &value, &err);
     if (!ok && errorOut) *errorOut = err;
     return value;
 }
@@ -94,7 +104,7 @@ bool CredentialStore::storeApiKey(const QString &value, QString *errorOut)
     if (value.isEmpty()) return clearApiKey(errorOut);
 
     QString err;
-    const bool ok = platformStore(value, &err);
+    const bool ok = platformStore(apiKeyAccount(), value, &err);
     if (!ok) {
         if (errorOut) *errorOut = err;
         return false;
@@ -120,7 +130,7 @@ bool CredentialStore::storeApiKey(const QString &value, QString *errorOut)
 bool CredentialStore::clearApiKey(QString *errorOut)
 {
     QString err;
-    const bool ok = platformClear(&err);
+    const bool ok = platformClear(apiKeyAccount(), &err);
     if (!ok && errorOut) *errorOut = err;
     // Flag clears regardless of platform success — a clear that fails because
     // there is no entry is still "no key configured".
@@ -136,6 +146,34 @@ bool CredentialStore::clearApiKey(QString *errorOut)
     ApplicationSettings transient;
     transient.setCommitMessageApiKeyConfigured(false);
     emit apiKeyConfiguredChanged(false);
+    return ok;
+}
+
+QString CredentialStore::retrieveSecret(const QString &key, QString *errorOut) const
+{
+    QString value;
+    QString err;
+    const bool ok = platformRetrieve(key, &value, &err);
+    if (!ok && errorOut) *errorOut = err;
+    return value;
+}
+
+bool CredentialStore::storeSecret(const QString &key, const QString &value, QString *errorOut)
+{
+    if (value.isEmpty()) {
+        return clearSecret(key, errorOut);
+    }
+    QString err;
+    const bool ok = platformStore(key, value, &err);
+    if (!ok && errorOut) *errorOut = err;
+    return ok;
+}
+
+bool CredentialStore::clearSecret(const QString &key, QString *errorOut)
+{
+    QString err;
+    const bool ok = platformClear(key, &err);
+    if (!ok && errorOut) *errorOut = err;
     return ok;
 }
 

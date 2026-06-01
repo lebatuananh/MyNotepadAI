@@ -82,6 +82,9 @@
     <addaction name="actionOpen"/>
     <addaction name="actionOpenFolderasWorkspace"/>
     <addaction name="menuOpenFolderAsWorkspace"/>
+    <addaction name="separator"/>
+    <addaction name="actionSshConnectionManager"/>
+    <addaction name="actionOpenRemoteTerminal"/>
     <addaction name="actionReload"/>
     <addaction name="actionSave"/>
     <addaction name="actionSaveAs"/>
@@ -1098,6 +1101,16 @@
   <action name="actionOpenTerminalInWorkspace">
    <property name="text">
     <string>Open Terminal in Workspace</string>
+   </property>
+  </action>
+  <action name="actionSshConnectionManager">
+   <property name="text">
+    <string>SSH Connection Manager…</string>
+   </property>
+  </action>
+  <action name="actionOpenRemoteTerminal">
+   <property name="text">
+    <string>Open Remote Terminal</string>
    </property>
   </action>
   <action name="actionOpenTerminalInFolder">

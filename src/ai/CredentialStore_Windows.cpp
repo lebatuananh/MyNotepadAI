@@ -17,16 +17,19 @@
  */
 
 // Windows DPAPI-backed credential store. The ciphertext blob is stored in
-// QSettings under Ai/CommitMessageApiKeyBlob (base64); the key never lives in
+// QSettings under Ai/Secrets/<account> (base64); the key never lives in
 // plaintext on disk. CryptProtectData with CRYPTPROTECT_LOCAL_MACHINE binds
 // the blob to the machine so it survives user logout but does not round-trip
-// to a different machine.
+// to a different machine. The legacy commit-message API key keeps its original
+// settings key (Ai/CommitMessageApiKeyBlob) so existing installs resolve
+// unchanged; all other accounts (e.g. SSH secrets) use the per-account group.
 
 #include "CredentialStore.h"
 #include "ApplicationSettings.h"
 
 #include <QByteArray>
 #include <QCoreApplication>
+#include <QString>
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -36,7 +39,19 @@ namespace ai {
 
 namespace {
 
-constexpr auto kBlobSettingKey = "Ai/CommitMessageApiKeyBlob";
+constexpr auto kLegacyApiKeyAccount = "commit-message-api-key";
+constexpr auto kLegacyApiKeySettingKey = "Ai/CommitMessageApiKeyBlob";
+
+// Map an account name to its settings blob key. The legacy commit-message API
+// key keeps its historical key for byte-for-byte back-compat; everything else
+// lands under a per-account group.
+QString blobSettingKey(const QString &account)
+{
+    if (account == QLatin1String(kLegacyApiKeyAccount)) {
+        return QLatin1String(kLegacyApiKeySettingKey);
+    }
+    return QStringLiteral("Ai/Secrets/") + account;
+}
 
 ApplicationSettings *findSettings()
 {
@@ -48,30 +63,33 @@ ApplicationSettings *findSettings()
     return nullptr;
 }
 
-QByteArray loadBlob()
+QByteArray loadBlob(const QString &account)
 {
+    const QString key = blobSettingKey(account);
     if (auto *s = findSettings()) {
-        return QByteArray::fromBase64(s->value(QLatin1String(kBlobSettingKey)).toByteArray());
+        return QByteArray::fromBase64(s->value(key).toByteArray());
     }
     ApplicationSettings transient;
-    return QByteArray::fromBase64(transient.value(QLatin1String(kBlobSettingKey)).toByteArray());
+    return QByteArray::fromBase64(transient.value(key).toByteArray());
 }
 
-void saveBlob(const QByteArray &blob)
+void saveBlob(const QString &account, const QByteArray &blob)
 {
+    const QString key = blobSettingKey(account);
     if (auto *s = findSettings()) {
-        s->setValue(QLatin1String(kBlobSettingKey), blob.toBase64());
+        s->setValue(key, blob.toBase64());
         return;
     }
     ApplicationSettings transient;
-    transient.setValue(QLatin1String(kBlobSettingKey), blob.toBase64());
+    transient.setValue(key, blob.toBase64());
 }
 
-void removeBlob()
+void removeBlob(const QString &account)
 {
-    if (auto *s = findSettings()) { s->remove(QLatin1String(kBlobSettingKey)); return; }
+    const QString key = blobSettingKey(account);
+    if (auto *s = findSettings()) { s->remove(key); return; }
     ApplicationSettings transient;
-    transient.remove(QLatin1String(kBlobSettingKey));
+    transient.remove(key);
 }
 
 QString lastErrorMessage()
@@ -92,9 +110,9 @@ QString lastErrorMessage()
 
 bool CredentialStore::platformAvailable() const { return true; }
 
-bool CredentialStore::platformRetrieve(QString *outValue, QString *errorOut) const
+bool CredentialStore::platformRetrieve(const QString &account, QString *outValue, QString *errorOut) const
 {
-    const QByteArray blob = loadBlob();
+    const QByteArray blob = loadBlob(account);
     if (blob.isEmpty()) {
         if (outValue) outValue->clear();
         return true;   // not configured is not an error
@@ -121,7 +139,7 @@ bool CredentialStore::platformRetrieve(QString *outValue, QString *errorOut) con
     return true;
 }
 
-bool CredentialStore::platformStore(const QString &value, QString *errorOut)
+bool CredentialStore::platformStore(const QString &account, const QString &value, QString *errorOut)
 {
     const QByteArray utf8 = value.toUtf8();
     DATA_BLOB in{};
@@ -129,7 +147,7 @@ bool CredentialStore::platformStore(const QString &value, QString *errorOut)
     in.pbData = reinterpret_cast<BYTE *>(const_cast<char *>(utf8.constData()));
     DATA_BLOB out{};
 
-    const BOOL ok = ::CryptProtectData(&in, L"NotepadAI commit-message API key",
+    const BOOL ok = ::CryptProtectData(&in, L"NotepadAI secret",
                                        nullptr, nullptr, nullptr,
                                        CRYPTPROTECT_LOCAL_MACHINE | CRYPTPROTECT_UI_FORBIDDEN,
                                        &out);
@@ -140,14 +158,14 @@ bool CredentialStore::platformStore(const QString &value, QString *errorOut)
     const QByteArray blob(reinterpret_cast<const char *>(out.pbData),
                           static_cast<int>(out.cbData));
     ::LocalFree(out.pbData);
-    saveBlob(blob);
+    saveBlob(account, blob);
     return true;
 }
 
-bool CredentialStore::platformClear(QString *errorOut)
+bool CredentialStore::platformClear(const QString &account, QString *errorOut)
 {
     Q_UNUSED(errorOut);
-    removeBlob();
+    removeBlob(account);
     return true;
 }
 

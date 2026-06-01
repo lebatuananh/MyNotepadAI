@@ -40,6 +40,7 @@ class TranslationManager;
 class AcpAgentManager;
 class ScheduledTaskRunner;
 namespace ai { class CommitMessageGenerator; class CredentialStore; }
+namespace remote { class ExecutionContextRegistry; class SshProfileRegistry; }
 
 
 class NotepadNextApplication : public SingleApplication
@@ -61,6 +62,8 @@ public:
     ScheduledTaskRunner *getScheduledTaskRunner() const { return scheduledTaskRunner_; }
     ai::CommitMessageGenerator *getCommitMessageGenerator() const { return commitMessageGenerator_; }
     ai::CredentialStore *getCredentialStore() const { return credentialStore_; }
+    remote::ExecutionContextRegistry *getExecutionContextRegistry() const { return executionContextRegistry_; }
+    remote::SshProfileRegistry *getSshProfileRegistry() const { return sshProfileRegistry_; }
 
     LuaState *getLuaState() const { return luaState; }
     QString getFileDialogFilter() const;
@@ -124,6 +127,8 @@ private:
     ScheduledTaskRunner *scheduledTaskRunner_ = nullptr;
     ai::CommitMessageGenerator *commitMessageGenerator_ = nullptr;
     ai::CredentialStore *credentialStore_ = nullptr;
+    remote::SshProfileRegistry *sshProfileRegistry_ = nullptr;
+    remote::ExecutionContextRegistry *executionContextRegistry_ = nullptr;
 
     LuaState *luaState = Q_NULLPTR;
 

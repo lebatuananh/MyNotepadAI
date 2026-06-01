@@ -52,6 +52,13 @@ add_subdirectory(xdiff)
 add_subdirectory(md4c)
 add_subdirectory(supertinycron)
 
+# SSH remote transport (vendored). mbedTLS MUST be added before libssh2 — the
+# libssh2 wrapper consumes NN_MBEDTLS_INCLUDE_DIR + the mbedcrypto target that
+# the mbedTLS wrapper publishes. Both expect their upstream release sources to
+# be dropped into thirdparty/{mbedtls,libssh2}/<name>-<ver>/ (see each README).
+add_subdirectory(mbedtls)
+add_subdirectory(libssh2)
+
 if(WIN32)
     add_subdirectory(webview2)
 endif()

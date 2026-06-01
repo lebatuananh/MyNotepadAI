@@ -29,6 +29,7 @@
 class NotepadNextApplication;
 class MainWindow;
 class TerminalDock;
+namespace remote { class ExecutionContext; }
 
 class TerminalManager : public QObject
 {
@@ -47,6 +48,11 @@ public:
 
 public slots:
     void openTerminal(const QString &cwd);
+    // Remote terminal: PTY over an SSH channel on `ctx` (captured at spawn into
+    // the dock). `remoteCwd` is a POSIX path on the host; `shell` empty → the
+    // remote default ($SHELL). No local PTY probe (the backend is remote).
+    void openRemoteTerminal(remote::ExecutionContext *ctx, const QString &remoteCwd,
+                            const QString &shell = QString());
     void openTask(const QString &workspaceCwd, const TerminalTask &task);
     void runOrRestartTask(const QString &cwd, const TerminalTask &task);
     void applyTheme();

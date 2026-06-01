@@ -38,6 +38,7 @@ class QMenu;
 class QPainter;
 
 class  IPtyProcess;
+namespace remote { class ExecutionContext; }
 
 class TerminalWidget : public QAbstractScrollArea
 {
@@ -47,7 +48,11 @@ public:
     explicit TerminalWidget(QWidget *parent = nullptr);
     ~TerminalWidget() override;
 
-    bool start(const QString &shell, const QString &cwd, const QStringList &env = {});
+    // `ctx` selects the PTY backend: null/local context → the existing local
+    // PtyQt backend (hot path unchanged); a remote context → an SSH-backed PTY.
+    // The ONLY behavioral change for local is one virtual call at construction.
+    bool start(const QString &shell, const QString &cwd, const QStringList &env = {},
+               remote::ExecutionContext *ctx = nullptr);
     void injectOutput(const QByteArray &data);
     void setColorScheme(const TerminalColorScheme &scheme);
     void setTerminalFont(const QFont &font);

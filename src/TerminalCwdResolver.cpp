@@ -18,6 +18,8 @@
 
 #include "TerminalCwdResolver.h"
 
+#include "remote/ExecutionContext.h"
+
 #include <QDir>
 #include <QFileInfo>
 
@@ -66,4 +68,26 @@ QString TerminalCwdResolver::resolveFolder(const QString &activeFilePath, bool a
         return QDir::cleanPath(workspaceRoot);
     }
     return QString();
+}
+
+QString TerminalCwdResolver::resolveForContext(remote::ExecutionContext *ctx, const QString &requested)
+{
+    // Local / no context → the existing local behavior verbatim. (A null ctx is
+    // treated as local; this keeps callers that have no context wired yet on
+    // the identical path.)
+    if (!ctx || !ctx->isRemote()) {
+        return resolveWorkspace(requested);
+    }
+
+    // Remote: never stat the path against the LOCAL disk (it lives on another
+    // machine). Require the connection to be live and the path non-empty, then
+    // delegate to the context's own POSIX normalization (design D11). The caller
+    // supplies the remote default (lastRemotePath or "~") as `requested`.
+    if (ctx->state() != remote::ExecutionContext::State::Connected) {
+        return QString();
+    }
+    if (requested.isEmpty()) {
+        return QString();
+    }
+    return ctx->resolveCwd(requested);
 }

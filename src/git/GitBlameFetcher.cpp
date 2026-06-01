@@ -18,13 +18,9 @@
 
 #include "GitBlameFetcher.h"
 
-#include "GitProcessRunner.h"
-
-#include <QProcess>
+#include "GitRunnerFactory.h"
 
 namespace {
-// Blame can take seconds on a long history file; 15 s is the same budget
-// the diff view uses.
 constexpr int kTimeoutMs = 15000;
 } // namespace
 
@@ -35,84 +31,50 @@ GitBlameFetcher::~GitBlameFetcher() { cancel(); }
 void GitBlameFetcher::cancel()
 {
     ++m_generation;
-    if (m_proc) {
-        m_proc->disconnect(this);
-        if (m_proc->state() != QProcess::NotRunning) m_proc->kill();
-        m_proc->deleteLater();
-        m_proc = nullptr;
+    if (m_runner) {
+        m_runner->cancelAsync();
+        m_runner->asQObject()->deleteLater();
+        m_runner = nullptr;
     }
 }
 
-void GitBlameFetcher::fetch(const QString &repoToplevel, const QString &relPath)
+void GitBlameFetcher::fetch(const QString &runnerScope,
+                            const QString &repoToplevel, const QString &relPath)
 {
+    cancel();
     if (repoToplevel.isEmpty() || relPath.isEmpty()) {
         emit blameFailed(repoToplevel, relPath, QStringLiteral("invalid arguments"));
         return;
     }
 
-    cancel();
     m_inFlight = ++m_generation;
     m_repoTop = repoToplevel;
     m_relPath = relPath;
 
-    const QString git = GitProcessRunner::gitExecutable();
-    if (git.isEmpty()) {
-        emit blameFailed(repoToplevel, relPath, QStringLiteral("git not found"));
-        return;
-    }
+    const QString scope = runnerScope.isEmpty() ? repoToplevel : runnerScope;
+    m_runner = GitRunnerFactory::createForRepo(scope, this);
 
-    m_proc = new QProcess(this);
-    m_proc->setProgram(git);
-    m_proc->setArguments({
+    const QStringList argv = {
         QStringLiteral("-c"), QStringLiteral("core.quotepath=false"),
+        QStringLiteral("-C"), repoToplevel,
         QStringLiteral("blame"),
         QStringLiteral("--porcelain"),
         QStringLiteral("HEAD"),
         QStringLiteral("--"),
         relPath,
+    };
+
+    const quint64 gen = m_inFlight;
+    m_runner->run(QString(), argv, QByteArray(), kTimeoutMs, false,
+                  [this, gen](int exit, const QByteArray &out, const QByteArray &err) {
+        if (gen != m_generation) return;
+        m_runner->asQObject()->deleteLater();
+        m_runner = nullptr;
+        if (exit != 0) {
+            emit blameFailed(m_repoTop, m_relPath, QString::fromUtf8(err));
+            return;
+        }
+        const auto result = GitBlameParser::parse(out);
+        emit blameReady(m_repoTop, m_relPath, result);
     });
-    m_proc->setWorkingDirectory(repoToplevel);
-    m_proc->setProcessEnvironment(GitProcessRunner::baseEnv());
-
-    connect(m_proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            this, &GitBlameFetcher::onFinished);
-    connect(m_proc, &QProcess::errorOccurred, this, &GitBlameFetcher::onErrorOccurred);
-
-    m_proc->start();
-    if (!m_proc->waitForStarted(kTimeoutMs)) onErrorOccurred();
-}
-
-void GitBlameFetcher::onFinished()
-{
-    if (!m_proc) return;
-    const quint64 gen = m_inFlight;
-    const int exitCode = m_proc->exitCode();
-    const QByteArray out = m_proc->readAllStandardOutput();
-    const QByteArray err = m_proc->readAllStandardError();
-    m_proc->deleteLater();
-    m_proc = nullptr;
-
-    if (gen != m_generation) return;
-
-    if (exitCode != 0) {
-        emit blameFailed(m_repoTop, m_relPath, QString::fromUtf8(err));
-        return;
-    }
-
-    // Parse synchronously — porcelain decoding is fast and the main UI
-    // thread is the only consumer, so dispatching across threads would just
-    // add latency.
-    const auto result = GitBlameParser::parse(out);
-    emit blameReady(m_repoTop, m_relPath, result);
-}
-
-void GitBlameFetcher::onErrorOccurred()
-{
-    if (!m_proc) return;
-    const quint64 gen = m_inFlight;
-    const QString message = m_proc->errorString();
-    m_proc->deleteLater();
-    m_proc = nullptr;
-    if (gen != m_generation) return;
-    emit blameFailed(m_repoTop, m_relPath, message);
 }

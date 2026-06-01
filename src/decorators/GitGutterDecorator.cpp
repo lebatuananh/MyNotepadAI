@@ -23,7 +23,9 @@
 #include "../git/GitBaseBlobCache.h"
 #include "../git/GitDiffPalette.h"
 #include "../git/GitProcessRunner.h"
+#include "../git/GitRunnerFactory.h"
 #include "../NotepadNextApplication.h"
+#include "../remote/SshProfile.h"
 #include "BookMarkDecorator.h"
 #include "GitGutterMarkers.h"
 
@@ -32,7 +34,6 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QPointer>
-#include <QProcess>
 #include <QString>
 #include <QTimer>
 
@@ -166,9 +167,8 @@ GitGutterDecorator::GitGutterDecorator(ScintillaNext *editor)
 
 GitGutterDecorator::~GitGutterDecorator()
 {
-    if (m_topProc) {
-        m_topProc->disconnect(this);
-        if (m_topProc->state() != QProcess::NotRunning) m_topProc->kill();
+    if (m_topRunner) {
+        m_topRunner->cancelAsync();
     }
     if (m_blobFetcher) {
         m_blobFetcher->disconnect(this);
@@ -258,9 +258,9 @@ void GitGutterDecorator::notify(const Scintilla::NotificationData *pscn)
     using Scintilla::Notification;
     switch (pscn->nmhdr.code) {
     case Notification::SavePointReached:
-        if (!m_repoToplevel.isEmpty() && !m_lastResolvedFile.isEmpty()) {
-            const QString rel = QDir(m_repoToplevel).relativeFilePath(m_lastResolvedFile);
-            GitBaseBlobCache::instance().invalidate(m_repoToplevel, rel);
+        if (!m_cacheRepoKey.isEmpty() && !m_lastResolvedPosixPath.isEmpty()) {
+            const QString rel = QDir(m_repoToplevel).relativeFilePath(m_lastResolvedPosixPath);
+            GitBaseBlobCache::instance().invalidate(m_cacheRepoKey, rel);
             m_baseBlobReady = false;
             m_baseBlob.clear();
         }
@@ -399,8 +399,15 @@ void GitGutterDecorator::refresh()
 
     if (currentFile != m_lastResolvedFile) {
         m_lastResolvedFile = currentFile;
+        m_runnerScope = currentFile;
+        if (remote::isSshUri(currentFile)) {
+            m_lastResolvedPosixPath = remote::parseSshUri(currentFile).remotePath;
+        } else {
+            m_lastResolvedPosixPath = currentFile;
+        }
         m_topLevelChecked = false;
         m_repoToplevel.clear();
+        m_cacheRepoKey.clear();
         m_baseBlob.clear();
         m_baseBlobReady = false;
     }
@@ -418,84 +425,82 @@ void GitGutterDecorator::refresh()
 
 void GitGutterDecorator::startTopLevelDiscovery()
 {
-    if (GitProcessRunner::gitExecutable().isEmpty()) {
+    ++m_topGeneration;
+
+    if (m_topRunner) {
+        m_topRunner->cancelAsync();
+        m_topRunner->asQObject()->deleteLater();
+        m_topRunner = nullptr;
+    }
+
+    const bool isRemote = GitRunnerFactory::isRemotePath(m_runnerScope);
+    if (!isRemote && GitProcessRunner::gitExecutable().isEmpty()) {
         m_topLevelChecked = true;
         m_repoToplevel.clear();
         clearMarkers();
         return;
     }
 
-    if (m_topProc) {
-        m_topProc->disconnect(this);
-        if (m_topProc->state() != QProcess::NotRunning) m_topProc->kill();
-        m_topProc->deleteLater();
-        m_topProc = nullptr;
-    }
-
-    const QFileInfo fi(m_lastResolvedFile);
-    const QString dir = fi.absolutePath();
-    if (dir.isEmpty() || !QDir(dir).exists()) {
-        m_topLevelChecked = true;
-        m_repoToplevel.clear();
-        return;
-    }
-
-    m_topProc = new QProcess(this);
-    m_topProc->setProgram(GitProcessRunner::gitExecutable());
-    m_topProc->setArguments({ QStringLiteral("rev-parse"), QStringLiteral("--show-toplevel") });
-    m_topProc->setWorkingDirectory(dir);
-    m_topProc->setProcessEnvironment(GitProcessRunner::baseEnv());
-    connect(m_topProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            this, &GitGutterDecorator::onTopLevelFinished);
-    connect(m_topProc, &QProcess::errorOccurred, this, [this]() {
+    const QString dir = isRemote
+        ? QFileInfo(m_lastResolvedPosixPath).absolutePath()
+        : QFileInfo(m_lastResolvedFile).absolutePath();
+    if (dir.isEmpty() || (!isRemote && !QDir(dir).exists())) {
         m_topLevelChecked = true;
         m_repoToplevel.clear();
         clearMarkers();
-        if (m_topProc) { m_topProc->deleteLater(); m_topProc = nullptr; }
+        return;
+    }
+
+    m_topRunner = GitRunnerFactory::createForRepo(m_runnerScope, this);
+    const QStringList argv = {
+        QStringLiteral("-C"), dir,
+        QStringLiteral("rev-parse"), QStringLiteral("--show-toplevel")
+    };
+    const quint64 gen = m_topGeneration;
+    m_topRunner->run(QString(), argv, QByteArray(), 5000, false,
+                     [this, gen](int exit, const QByteArray &out, const QByteArray &) {
+        if (gen != m_topGeneration) return;
+        if (m_topRunner) {
+            m_topRunner->asQObject()->deleteLater();
+            m_topRunner = nullptr;
+        }
+        m_topLevelChecked = true;
+        if (exit != 0) {
+            m_repoToplevel.clear();
+            clearMarkers();
+            return;
+        }
+        const QString top = QString::fromUtf8(out).trimmed();
+        if (top.isEmpty()) {
+            m_repoToplevel.clear();
+            clearMarkers();
+            return;
+        }
+        m_repoToplevel = QDir::cleanPath(top);
+        if (remote::isSshUri(m_runnerScope)) {
+            const remote::SshUri uri = remote::parseSshUri(m_runnerScope);
+            m_cacheRepoKey = remote::formatSshUri(uri.profileId, m_repoToplevel);
+        } else {
+            m_cacheRepoKey = m_repoToplevel;
+        }
+        ensureBaseBlobAndDiff();
     });
-    m_topProc->start();
-}
-
-void GitGutterDecorator::onTopLevelFinished()
-{
-    if (!m_topProc) return;
-
-    const int exitCode = m_topProc->exitCode();
-    const QByteArray out = m_topProc->readAllStandardOutput();
-    m_topProc->deleteLater();
-    m_topProc = nullptr;
-
-    m_topLevelChecked = true;
-    if (exitCode != 0) {
-        m_repoToplevel.clear();
-        clearMarkers();
-        return;
-    }
-
-    QString top = QString::fromUtf8(out).trimmed();
-    if (top.isEmpty()) {
-        m_repoToplevel.clear();
-        clearMarkers();
-        return;
-    }
-    m_repoToplevel = QDir::cleanPath(top);
-    ensureBaseBlobAndDiff();
 }
 
 void GitGutterDecorator::ensureBaseBlobAndDiff()
 {
-    if (m_repoToplevel.isEmpty() || m_lastResolvedFile.isEmpty()) {
+    if (m_cacheRepoKey.isEmpty() || m_lastResolvedPosixPath.isEmpty()) {
         clearMarkers();
         return;
     }
 
-    const QString rel = QDir(m_repoToplevel).relativeFilePath(m_lastResolvedFile);
+    const QString rel = QDir(m_repoToplevel).relativeFilePath(m_lastResolvedPosixPath);
 
     if (m_baseBlobReady) {
         runDiff();
         return;
     }
-    const QByteArray cached = GitBaseBlobCache::instance().get(m_repoToplevel, rel);
+    const QByteArray cached = GitBaseBlobCache::instance().get(m_cacheRepoKey, rel);
     if (!cached.isNull()) {
         m_baseBlob = cached;
         m_baseBlobReady = true;
@@ -510,7 +515,7 @@ void GitGutterDecorator::ensureBaseBlobAndDiff()
         connect(m_blobFetcher, &CatFileBlobFetcher::blobFailed,
                 this, &GitGutterDecorator::onBlobFailed);
     }
-    m_blobFetcher->fetch(m_repoToplevel, rel);
+    m_blobFetcher->fetch(m_runnerScope, m_cacheRepoKey, m_repoToplevel, rel);
 }
 
 void GitGutterDecorator::onBlobReady(const QString &repoTop, const QString &relPath,

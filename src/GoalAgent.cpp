@@ -6,6 +6,7 @@
 #include "AcpProtocol.h"
 #include "AcpSessionModel.h"
 #include "ApplicationSettings.h"
+#include "ExecutionContext.h"
 #include "GoalActionParser.h"
 #include "GoalAgentSettings.h"
 #include "GoalPromptRenderer.h"
@@ -176,6 +177,11 @@ void GoalAgent::spawnJudgeForCriterion(int index)
 
     QString cwd = m_targetConnection ? m_targetConnection->workingDirectory()
                                      : QDir::currentPath();
+    if (m_targetConnection && m_targetConnection->executionContext()
+        && m_targetConnection->executionContext()->isRemote() && m_manager) {
+        conn->setRemoteSpawn(m_targetConnection->executionContext(),
+                             m_manager->remoteChannelBuilder());
+    }
     conn->spawn(agent, cwd);
 
     logDebug(QStringLiteral("spawnJudge: criterion %1, agent %2, cwd=%3")

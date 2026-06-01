@@ -90,6 +90,10 @@ public:
     {
         m_remoteChannelBuilder = std::move(builder);
     }
+    const AcpConnection::RemoteChannelBuilder &remoteChannelBuilder() const
+    {
+        return m_remoteChannelBuilder;
+    }
 
     // Cancel + tear down the session keyed by sessionId. Safe to call with an
     // unknown id (no-op).

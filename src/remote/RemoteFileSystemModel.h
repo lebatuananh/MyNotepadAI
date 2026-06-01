@@ -22,6 +22,7 @@
 #include <QAbstractItemModel>
 #include <QHash>
 #include <QList>
+#include <QSet>
 #include <QString>
 
 #include <functional>
@@ -29,6 +30,8 @@
 #include <vector>
 
 #include "IWorkspaceFsModel.h"
+
+class PathStatusIndex;
 
 namespace remote {
 
@@ -120,6 +123,12 @@ public slots:
     // minimal row insert/remove. A no-op for an unknown / not-yet-listed dir.
     void onDirectoryChanged(const QString &path);
 
+    // --- Git decoration (mirrors FolderAsWorkspaceFsModel) -------------------
+    void setStatusIndex(PathStatusIndex *index) { m_statusIndex = index; }
+    void setColorsEnabled(bool enabled) { m_colorsEnabled = enabled; }
+    void setDarkPalette(bool dark) { m_isDark = dark; }
+    void notifyPathsChanged(const QSet<QString> &cleanPaths);
+
 signals:
     // Mirrors QFileSystemModel::directoryLoaded — fired once a directory's
     // children have materialized. The dock's path-space restore/expansion logic
@@ -171,6 +180,10 @@ private:
     ListFn m_lister;
     std::unique_ptr<Node> m_root;   // R, the workspace dir node (null if unrooted)
     QString m_rootPath;             // cleaned absolute root path
+
+    PathStatusIndex *m_statusIndex = nullptr;
+    bool m_colorsEnabled = false;
+    bool m_isDark = false;
 };
 
 } // namespace remote

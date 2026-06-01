@@ -27,8 +27,9 @@
 #include <QPointer>
 #include <QString>
 
+#include "../git/GitProcessRunner.h"
+
 class CatFileBlobFetcher;
-class QProcess;
 class QTimer;
 
 class GitGutterDecorator : public EditorDecorator
@@ -46,7 +47,6 @@ public slots:
     void notify(const Scintilla::NotificationData *pscn) override;
 
 private slots:
-    void onTopLevelFinished();
     void onBlobReady(const QString &repoTop, const QString &relPath, const QByteArray &blob);
     void onBlobFailed(const QString &repoTop, const QString &relPath, const QString &message);
     void onRediffDebounced();
@@ -62,7 +62,8 @@ private:
     void scheduleRediff();
 
     QTimer *m_debounce = nullptr;
-    QProcess *m_topProc = nullptr;
+    IGitProcessRunner *m_topRunner = nullptr;
+    quint64 m_topGeneration = 0;
     CatFileBlobFetcher *m_blobFetcher = nullptr;
 
     BufferDiffEngine::Hunks m_hunks;
@@ -74,7 +75,10 @@ private:
     bool m_annotStylesReady = false;
 
     QString m_lastResolvedFile;
+    QString m_runnerScope;
+    QString m_lastResolvedPosixPath;
     QString m_repoToplevel;
+    QString m_cacheRepoKey;
     bool m_topLevelChecked = false;
 
     void handleMarginClick(int positionInDoc);

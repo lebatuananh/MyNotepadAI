@@ -81,6 +81,7 @@ public:
     AcpProtocol::AcpCapabilities capabilities() const { return m_capabilities; }
     AcpAgentDefinition definition() const { return m_agent; }
     QString workingDirectory() const { return m_workingDir; }
+    remote::ExecutionContext *executionContext() const { return m_execContext; }
 
     // In-memory ring-buffered debug log of every spawn/stdin/stdout/stderr/error
     // event seen by this connection. Each entry is a single timestamped line.

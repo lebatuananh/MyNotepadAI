@@ -89,8 +89,15 @@ GitController::GitController(const QString &workspaceRoot, QObject *parent)
     // refresh re-fetches via cat-file. Index/refs/workingTree changes leave
     // HEAD untouched, so they don't need to evict.
     connect(m_watcher, &GitWatcher::headChanged, this, [this]() {
-        if (!m_currentRepo.isEmpty())
-            GitBaseBlobCache::instance().invalidateRepo(m_currentRepo);
+        if (!m_currentRepo.isEmpty()) {
+            if (remote::isSshUri(m_workspaceRoot)) {
+                const remote::SshUri uri = remote::parseSshUri(m_workspaceRoot);
+                GitBaseBlobCache::instance().invalidateRepo(
+                    remote::formatSshUri(uri.profileId, m_currentRepo));
+            } else {
+                GitBaseBlobCache::instance().invalidateRepo(m_currentRepo);
+            }
+        }
         if (auto *app = qobject_cast<NotepadNextApplication *>(QCoreApplication::instance()))
             emit app->gitHeadChanged();
     });
@@ -1103,8 +1110,15 @@ void GitController::onRunFinished(int exit, const QByteArray &out, const QByteAr
                 // ref files are NOT detected until the user saves the file
                 // (SavePointReached triggers re-fetch). This is a known
                 // limitation of QFileSystemWatcher directory monitoring.
-                if (!m_currentRepo.isEmpty())
-                    GitBaseBlobCache::instance().invalidateRepo(m_currentRepo);
+                if (!m_currentRepo.isEmpty()) {
+                    if (remote::isSshUri(m_workspaceRoot)) {
+                        const remote::SshUri uri = remote::parseSshUri(m_workspaceRoot);
+                        GitBaseBlobCache::instance().invalidateRepo(
+                            remote::formatSshUri(uri.profileId, m_currentRepo));
+                    } else {
+                        GitBaseBlobCache::instance().invalidateRepo(m_currentRepo);
+                    }
+                }
                 if (auto *app = qobject_cast<NotepadNextApplication *>(QCoreApplication::instance()))
                     emit app->gitHeadChanged();
             }

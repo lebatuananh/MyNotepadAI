@@ -18,6 +18,10 @@
 
 #include "RemoteFileSystemModel.h"
 
+#include "git/GitDiffPalette.h"
+#include "git/GitStatusEntry.h"
+#include "git/PathStatusIndex.h"
+
 #include <QAbstractFileIconProvider>
 #include <QDir>
 #include <QFileInfo>
@@ -29,6 +33,21 @@
 namespace remote {
 
 namespace {
+
+QColor colourForChange(GitStatusEntry::Change c, const GitDiffPalette &p)
+{
+    switch (c) {
+    case GitStatusEntry::Unmerged:    return p.fgConflict;
+    case GitStatusEntry::Deleted:     return p.fgDeleted;
+    case GitStatusEntry::Modified:    return p.fgModified;
+    case GitStatusEntry::TypeChanged: return p.fgModified;
+    case GitStatusEntry::Added:       return p.fgAdded;
+    case GitStatusEntry::Renamed:     return p.fgRenamed;
+    case GitStatusEntry::Copied:      return p.fgRenamed;
+    case GitStatusEntry::Untracked_:  return p.fgUntracked;
+    }
+    return {};
+}
 
 // Stable ordering identical in spirit to QFileSystemModel's default: directories
 // before files, then case-insensitive name, with a case-sensitive tiebreak so
@@ -219,6 +238,18 @@ QVariant RemoteFileSystemModel::data(const QModelIndex &index, int role) const
         return QDir::toNativeSeparators(pathOf(n));
     case Qt::DecorationRole:
         return genericIcon(n->isDir);
+    case Qt::ForegroundRole:
+        if (m_colorsEnabled && m_statusIndex) {
+            const QString cleanPath = QDir::cleanPath(pathOf(n));
+            const auto change = n->isDir
+                ? m_statusIndex->folderChange(cleanPath)
+                : m_statusIndex->fileChange(cleanPath);
+            if (change.has_value()) {
+                const QColor c = colourForChange(*change, GitDiffPalette::current(m_isDark));
+                if (c.isValid()) return c;
+            }
+        }
+        return {};
     case LoadingRole:
         return n->listing;
     default:
@@ -475,6 +506,18 @@ void RemoteFileSystemModel::onDirectoryChanged(const QString &path)
         return;
     }
     beginFetch(node);
+}
+
+void RemoteFileSystemModel::notifyPathsChanged(const QSet<QString> &cleanPaths)
+{
+    const QList<int> roles{ Qt::ForegroundRole };
+    for (const QString &p : cleanPaths) {
+        Node *n = nodeForPath(p);
+        if (!n) continue;
+        const QModelIndex idx = indexOfNode(n);
+        if (!idx.isValid()) continue;
+        emit dataChanged(idx, idx, roles);
+    }
 }
 
 } // namespace remote

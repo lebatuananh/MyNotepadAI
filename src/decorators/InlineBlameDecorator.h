@@ -21,11 +21,11 @@
 #include "EditorDecorator.h"
 
 #include "../git/GitBlameParser.h"
+#include "../git/GitProcessRunner.h"
 
 #include <QString>
 
 class GitBlameFetcher;
-class QProcess;
 class QTimer;
 
 // Renders an inline "<Author>, <when> • <summary>" annotation at the END of
@@ -66,7 +66,6 @@ signals:
     void commitClicked(const QByteArray &sha);
 
 private slots:
-    void onTopLevelFinished();
     void onBlameReady(const QString &repoTop, const QString &relPath,
                       const GitBlameParser::Result &result);
     void onBlameFailed(const QString &repoTop, const QString &relPath,
@@ -88,11 +87,10 @@ private:
     bool isPointOnAnnotation(const QPoint &localPos) const;
 
     QTimer *m_caretDebounce = nullptr;
-    QProcess *m_topProc = nullptr;
+    IGitProcessRunner *m_topRunner = nullptr;
+    quint64 m_topGeneration = 0;
     GitBlameFetcher *m_blameFetcher = nullptr;
 
-    // Cached blame for the current file. Cleared on file change or buffer
-    // modify; rebuilt on SavePointReached / refresh().
     GitBlameParser::Result m_blame;
     bool m_blameValid = false;
 
@@ -100,6 +98,8 @@ private:
     bool   m_annotStyleReady = false;
 
     QString m_lastResolvedFile;
+    QString m_runnerScope;
+    QString m_lastResolvedPosixPath;
     QString m_repoToplevel;
     bool    m_topLevelChecked = false;
 };

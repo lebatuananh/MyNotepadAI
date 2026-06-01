@@ -324,6 +324,21 @@ void FolderAsWorkspaceDock::useRemoteBackend(remote::RemoteFsBackend *backend)
     proxy->setSourceModel(remoteModel);
     connectModelSignals();
 
+    remoteModel->setStatusIndex(&m_pathStatus);
+    if (auto *app = qobject_cast<NotepadNextApplication *>(qApp)) {
+        remoteModel->setDarkPalette(app->isEffectiveThemeDark());
+        connect(app, &NotepadNextApplication::effectiveThemeChanged,
+                remoteModel, [remoteModel, app]() {
+                    remoteModel->setDarkPalette(app->isEffectiveThemeDark());
+                });
+        ApplicationSettings *settings = app->getSettings();
+        if (settings) {
+            remoteModel->setColorsEnabled(settings->fileTreeGitColors());
+            connect(settings, &ApplicationSettings::fileTreeGitColorsChanged,
+                    remoteModel, &remote::RemoteFileSystemModel::setColorsEnabled);
+        }
+    }
+
     // Stand up the bounded poll-watcher (D3): the remote analogue of the local
     // QFileSystemWatcher. It polls SFTP readdir for ONLY the expanded/visible
     // dirs and, on a diff, drives the model's onDirectoryChanged re-list — the
@@ -972,7 +987,11 @@ void FolderAsWorkspaceDock::applyMergedEntries(const GitStatusEntries &merged,
 
     const QSet<QString> delta = next.deltaPaths(m_pathStatus);
     m_pathStatus = std::move(next);
-    if (model) model->notifyPathsChanged(delta);
+    if (model) {
+        model->notifyPathsChanged(delta);
+    } else if (auto *rm = qobject_cast<remote::RemoteFileSystemModel *>(fsModel ? fsModel->asModel() : nullptr)) {
+        rm->notifyPathsChanged(delta);
+    }
 }
 
 SubmoduleStatusFetcher *FolderAsWorkspaceDock::ensureSubmoduleFetcher()

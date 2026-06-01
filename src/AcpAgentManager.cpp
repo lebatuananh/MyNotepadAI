@@ -206,9 +206,11 @@ void AcpAgentManager::restartSession(const QString &oldSessionId)
     // Snapshot what we need before tearing down the old connection.
     AcpAgentDefinition agent;
     QString workingDir;
+    remote::ExecutionContext *execCtx = nullptr;
     if (old.connection) {
         agent = old.connection->definition();
         workingDir = old.connection->workingDirectory();
+        execCtx = old.connection->executionContext();
     }
     if (workingDir.isEmpty()) {
         workingDir = old.dock->workingDirectory();
@@ -271,6 +273,10 @@ void AcpAgentManager::restartSession(const QString &oldSessionId)
 
     // Spawn the new agent only if we actually have a usable agent definition.
     if (!agent.command.isEmpty()) {
+        const bool isRemote = execCtx && execCtx->isRemote() && m_remoteChannelBuilder;
+        if (isRemote) {
+            newConn->setRemoteSpawn(execCtx, m_remoteChannelBuilder);
+        }
         newConn->spawn(agent, workingDir);
     }
 

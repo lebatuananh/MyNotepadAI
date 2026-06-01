@@ -205,18 +205,20 @@ void SshSessionWorker::startConnect(const ConnectParams &params)
     m_hostKeyRejected = false;
     m_sftpBulkInited = false;
     m_sftpMetaInited = false;
+    m_connectDeadlineMs = monotonicMs() + kConnectPhaseTimeoutMs;
     setState(State::ConnectingSocket);
     pump();
-    // FIX-4: if still connecting (non-blocking), arm the maintenance timer to
-    // re-poll since there are no socket notifiers yet.
-    if (m_state == State::ConnectingSocket) {
-        armMaintenanceTimer();
-    }
+    // FIX-4/FIX-5: arm the maintenance timer for the entire connect phase
+    // (socket poll + handshake/auth deadline enforcement). It stays running until
+    // Ready or connection-lost.
+    armMaintenanceTimer();
 }
 
 void SshSessionWorker::acceptHostKey()
 {
     m_hostKeyAccepted = true;
+    // Reset the deadline — the user may have spent minutes on the host-key prompt.
+    m_connectDeadlineMs = monotonicMs() + kConnectPhaseTimeoutMs;
     pump();
 }
 
@@ -350,11 +352,12 @@ void SshSessionWorker::advanceConnect()
         const ISshTransport::Step s = m_transport->connectSocket(m_params.host, m_params.port);
         if (s == ISshTransport::Step::Again) return;
         if (s == ISshTransport::Step::Error) {
-            stopMaintenanceTimer(); // FIX-4: no longer polling
+            stopMaintenanceTimer();
             enterConnectionLost(tr("Could not reach %1:%2").arg(m_params.host).arg(m_params.port));
             return;
         }
-        stopMaintenanceTimer(); // FIX-4: connected; notifiers take over
+        // TCP connected; notifiers take over for data-driven progress, but the
+        // maintenance timer stays armed for FIX-5 deadline enforcement.
         setupNotifiers();
         setState(State::Handshaking);
     }
@@ -364,6 +367,7 @@ void SshSessionWorker::advanceConnect()
         const ISshTransport::Step s = m_transport->handshake();
         if (s == ISshTransport::Step::Again) return;
         if (s == ISshTransport::Step::Error) {
+            stopMaintenanceTimer();
             enterConnectionLost(tr("SSH handshake failed"));
             return;
         }
@@ -406,11 +410,13 @@ void SshSessionWorker::advanceConnect()
         }
         if (s == ISshTransport::Step::Again) return;
         if (s == ISshTransport::Step::Error) {
+            stopMaintenanceTimer();
             const QString reason = tr("Authentication failed");
             emit authFailed(reason);
             enterConnectionLost(reason);
             return;
         }
+        stopMaintenanceTimer();
         setState(State::Ready);
         emit connected();
     }
@@ -763,15 +769,31 @@ void SshSessionWorker::onMaintenanceTick()
         return;
     }
 
+    // FIX-5: enforce the overall connect-phase deadline (handshake + auth).
+    // This fires when the server accepts TCP but never responds to SSH traffic,
+    // or when auth hangs on an unresponsive agent/server. AwaitingHostKey is
+    // excluded — that's user interaction time, not a server timeout.
+    if (m_state == State::ConnectingSocket || m_state == State::Handshaking
+        || m_state == State::Authenticating) {
+        if (m_connectDeadlineMs > 0 && monotonicMs() >= m_connectDeadlineMs) {
+            stopMaintenanceTimer();
+            enterConnectionLost(tr("Connection timed out (server did not respond within %1 s)")
+                                    .arg(kConnectPhaseTimeoutMs / 1000));
+            return;
+        }
+    }
+
     // FIX-4: while connecting, re-poll the transport.
     if (m_state == State::ConnectingSocket) {
         pump();
-        // If we transitioned out of ConnectingSocket, the timer is no longer
-        // needed for connect polling (notifiers take over). But keep it running
-        // if there are backoff retries pending.
-        if (m_state != State::ConnectingSocket && !hasBackoffReady()) {
-            stopMaintenanceTimer();
-        }
+        return;
+    }
+
+    // Handshaking/Authenticating/AwaitingHostKey: the maintenance timer stays
+    // armed solely for deadline enforcement above. No pump needed — socket
+    // notifiers drive progress (and AwaitingHostKey waits on user input).
+    if (m_state == State::Handshaking || m_state == State::Authenticating
+        || m_state == State::AwaitingHostKey) {
         return;
     }
 
@@ -782,7 +804,7 @@ void SshSessionWorker::onMaintenanceTick()
             serviceExec(); // exec ops also have backoff
         }
         // Stop the timer if no more backoff retries are pending.
-        if (!hasBackoffReady() && m_state != State::ConnectingSocket) {
+        if (!hasBackoffReady()) {
             stopMaintenanceTimer();
         }
     }

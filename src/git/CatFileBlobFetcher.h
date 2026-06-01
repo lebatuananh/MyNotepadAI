@@ -18,27 +18,14 @@
 
 #pragma once
 
+#include "GitProcessRunner.h"
+
 #include <QByteArray>
 #include <QObject>
 #include <QString>
 
 #include <cstdint>
 
-class QProcess;
-
-// Async fetch of `HEAD:<relPath>` raw bytes, populating GitBaseBlobCache.
-//
-// Standalone path (no GitController coupling) so editors that live outside
-// any workspace — or that need their blob ahead of the workspace finishing
-// its own queue — can still get a base blob for the buffer-diff engine.
-// Calling code that already owns a GitController can use
-// GitController::requestCatFileBlob instead; the two paths populate the same
-// cache.
-//
-// Cancellation: each request bumps an internal generation counter. A pending
-// process whose generation no longer matches is killed and its result
-// dropped. This matters because we re-fetch on every save and the user may
-// trigger N saves in quick succession.
 class CatFileBlobFetcher : public QObject
 {
     Q_OBJECT
@@ -46,14 +33,8 @@ public:
     explicit CatFileBlobFetcher(QObject *parent = nullptr);
     ~CatFileBlobFetcher() override;
 
-    // Kick off a fetch. `repoToplevel` must be the absolute path to the
-    // working tree root (`git rev-parse --show-toplevel`); `relPath` is
-    // relative to that root. On success the blob is written into
-    // GitBaseBlobCache AND emitted via blobReady. On failure the cache is
-    // not touched and blobFailed is emitted.
-    void fetch(const QString &repoToplevel, const QString &relPath);
-
-    // Cancel any in-flight fetch. Safe to call repeatedly.
+    void fetch(const QString &runnerScope, const QString &cacheRepoKey,
+               const QString &repoToplevel, const QString &relPath);
     void cancel();
 
 signals:
@@ -62,14 +43,11 @@ signals:
     void blobFailed(const QString &repoToplevel, const QString &relPath,
                     const QString &message);
 
-private slots:
-    void onFinished();
-    void onErrorOccurred();
-
 private:
-    QProcess *m_proc = nullptr;
-    quint64   m_generation = 0; // bumped on each fetch + cancel
-    quint64   m_inFlight   = 0; // generation belonging to m_proc
-    QString   m_repoTop;
-    QString   m_relPath;
+    IGitProcessRunner *m_runner = nullptr;
+    quint64 m_generation = 0;
+    quint64 m_inFlight   = 0;
+    QString m_cacheScope;
+    QString m_repoTop;
+    QString m_relPath;
 };

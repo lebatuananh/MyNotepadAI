@@ -26,6 +26,7 @@ class QProgressBar;
 class QPushButton;
 class QStackedWidget;
 class QPlainTextEdit;
+class QTimer;
 
 namespace remote { class RemoteExecutionContext; class SshConnection; }
 
@@ -50,12 +51,14 @@ private:
     void wireConnection();
     void showPage(Page page);
     void setStage(const QString &text);
+    void appendLog(const QString &message);
     void onHostKey(const QString &fingerprint, const QByteArray &key);
     void onConnected();
     void onConnectionLost(const QString &reason);
     void onAuthFailed(const QString &reason);
     void onCancel();
     void onRetry();
+    void onOverallTimeout();
 
     remote::RemoteExecutionContext *m_context;
     remote::SshConnection *m_connection = nullptr;
@@ -65,6 +68,7 @@ private:
     // Progress page
     QLabel *m_stageLabel = nullptr;
     QProgressBar *m_progress = nullptr;
+    QPlainTextEdit *m_logOutput = nullptr;
     QPushButton *m_cancelBtn = nullptr;
 
     // Host-key page
@@ -78,6 +82,7 @@ private:
     QPushButton *m_retryBtn = nullptr;
     QPushButton *m_closeBtn = nullptr;
 
+    QTimer *m_overallTimer = nullptr;
     bool m_hostKeyHandled = false;
 };
 

@@ -431,11 +431,18 @@ private:
     bool m_sawInboundSinceKeepalive = false;
     int m_keepaliveMissCount = 0;
 
-    // FIX-1/FIX-4: maintenance timer (short interval) for backoff retries and
-    // connect re-polling. Created lazily on the worker thread.
+    // FIX-1/FIX-4/FIX-5: maintenance timer (short interval) for backoff retries,
+    // connect re-polling, and connect-phase deadline enforcement. Created lazily
+    // on the worker thread.
     QTimer *m_maintenanceTimer = nullptr;
     // Monotonic clock base for backoff deadlines (QDateTime::currentMSecsSinceEpoch).
     qint64 monotonicMs() const;
+
+    // FIX-5: overall connect-phase deadline (handshake + auth). Set in
+    // startConnect; enforced by the maintenance timer. Covers the gap where the
+    // server accepts TCP but never responds to SSH protocol traffic.
+    static constexpr int kConnectPhaseTimeoutMs = 30000;
+    qint64 m_connectDeadlineMs = 0;
 
     // SFTP engine state (D1a): two independent lanes.
     // Bulk lane (Read + Write) and metadata lane (Stat + Readdir). Each has its

@@ -26,6 +26,7 @@
 #include <QDateTime>
 #include <QFile>
 #include <QFileInfo>
+#include <QPointer>
 
 #include <functional>
 
@@ -236,8 +237,8 @@ private:
     bool temporary = false; // Temporary file loaded from a session. It can either be a 'New' file or actual 'File'
 
     // Remote (ssh://) backing. nullptr for a local buffer. Not owned — the
-    // ExecutionContext owns the backend and outlives the editor.
-    remote::IFileSystemBackend *fsBackend = nullptr;
+    // ExecutionContext owns the backend; QPointer auto-nulls on destruction.
+    QPointer<remote::IFileSystemBackend> fsBackend;
     QString remoteUriString;   // ssh://<profileId><remotePath> identity
     QString remoteFilePath;    // POSIX path handed to the backend
     quint64 loadReqId = 0;     // reqId of the in-flight SFTP read (0 = none)

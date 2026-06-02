@@ -2036,6 +2036,15 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
 
 MainWindow::~MainWindow()
 {
+    // Destroy fileWatcher before the base-class dtor tears down child widgets
+    // (CDockManager → CDockWidget → ScintillaNext → QObject::destroyed signal).
+    // fileWatcher is a child of this, created AFTER DockedEditor/CDockManager, so
+    // Qt's reverse-order child destruction frees it first — leaving the lambdas
+    // connected to editors' destroyed signal with a dangling pointer. Explicit
+    // early delete prevents that.
+    delete fileWatcher;
+    fileWatcher = nullptr;
+
     delete ui;
 }
 
@@ -4454,13 +4463,13 @@ void MainWindow::addEditor(ScintillaNext *editor)
     // canonicalFilePath() + QFileSystemWatcher::addPath are syscalls that
     // don't need to complete before the tab is painted.
     QTimer::singleShot(0, editor, [this, editor]() {
-        fileWatcher->watchEditor(editor);
+        if (fileWatcher) fileWatcher->watchEditor(editor);
     });
     connect(editor, &ScintillaNext::closed, this, [this, editor]() {
-        fileWatcher->unwatchEditor(editor);
+        if (fileWatcher) fileWatcher->unwatchEditor(editor);
     });
     connect(editor, &QObject::destroyed, this, [this, editor]() {
-        fileWatcher->unwatchEditor(editor);
+        if (fileWatcher) fileWatcher->unwatchEditor(editor);
     });
 
     // These should only ever occur for the focused editor??

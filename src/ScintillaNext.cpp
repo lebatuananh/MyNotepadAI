@@ -637,6 +637,11 @@ QFileDevice::FileError ScintillaNext::save()
 
 QFileDevice::FileError ScintillaNext::saveRemote()
 {
+    if (!fsBackend) {
+        emit saveFailed(tr("Remote connection lost"));
+        return QFileDevice::ResourceError;
+    }
+
     // Async remote save (D4). Q_ASSERT(isFile()) already holds (remote buffers
     // are File). The buffer is shown "Saving…" by the UI on aboutToSave(); on
     // success setSavePoint()/saved(); on failure it STAYS dirty (no setSavePoint)

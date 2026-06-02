@@ -727,6 +727,11 @@ void FolderAsWorkspaceDock::maybeScheduleGitTabForDecoration()
 
 void FolderAsWorkspaceDock::setRootPath(const QString &dir)
 {
+    // Reset the one-shot root-expand guard: the model reset inside
+    // fsModel->setRootPath (remote) or the proxy reset in setRootSourcePath
+    // collapses the tree, so directoryLoaded must re-expand the root.
+    m_rootExpandApplied = false;
+
     if (fsModel) fsModel->setRootPath(dir);
     // Point the proxy at the new root. The view's root index stays
     // QModelIndex() so the workspace dir shows as the single top node — we do
@@ -1192,11 +1197,19 @@ void FolderAsWorkspaceDock::revealAndSelectPath(const QString &absolutePath)
     // Build the ancestor chain top-down: [root, level1, ..., fileParent].
     QStringList ancestorsDesc;
     {
-        QString cur = QFileInfo(cleaned).absolutePath(); // file's parent dir (cleaned)
+        const bool isSsh = !m_sshWorkspaceUri.isEmpty();
+        auto parentOf = [isSsh](const QString &p) -> QString {
+            if (isSsh) {
+                const int slash = p.lastIndexOf(QLatin1Char('/'));
+                return (slash > 0) ? p.left(slash) : QString();
+            }
+            return QFileInfo(p).absolutePath();
+        };
+        QString cur = parentOf(cleaned);
         while (!cur.isEmpty()) {
             ancestorsDesc.prepend(cur);
             if (cur.compare(root, cs) == 0) break;
-            const QString parent = QFileInfo(cur).absolutePath();
+            const QString parent = parentOf(cur);
             if (parent == cur) break; // filesystem-root guard
             cur = parent;
         }
@@ -1303,10 +1316,19 @@ void FolderAsWorkspaceDock::applySavedTreeState(const WorkspaceStateSnapshot &sn
     // setRootPath() so the root's own directoryLoaded fires after we're ready.
     m_pendingExpansion.clear();
     m_userVetoed.clear();
+    const bool isSsh = !m_sshWorkspaceUri.isEmpty();
     for (const QString &p : snapshot.expandedFolders) {
         if (p.isEmpty()) continue;
         const QString cleaned = QDir::cleanPath(p);
-        const QString parent = QFileInfo(cleaned).absolutePath();
+        // For SSH (POSIX) paths, QFileInfo::absolutePath resolves against the
+        // local drive on Windows — use string-based parent extraction instead.
+        QString parent;
+        if (isSsh) {
+            const int lastSlash = cleaned.lastIndexOf(QLatin1Char('/'));
+            parent = (lastSlash > 0) ? cleaned.left(lastSlash) : QString();
+        } else {
+            parent = QFileInfo(cleaned).absolutePath();
+        }
         if (parent.isEmpty()) continue;
         m_pendingExpansion.insert(QDir::cleanPath(parent), cleaned);
     }
@@ -1322,7 +1344,16 @@ void FolderAsWorkspaceDock::applySavedTreeState(const WorkspaceStateSnapshot &sn
     if (snapshot.rootPath.isEmpty()) {
         m_rootShouldExpand = true;
     } else {
-        const QString cleanedRoot = QDir::cleanPath(snapshot.rootPath);
+        // For SSH workspaces rootPath is the full ssh:// URI; expandedFolders
+        // stores POSIX paths from the remote model. Extract the remote path for
+        // comparison. Local paths pass through unchanged.
+        QString cleanedRoot;
+        if (remote::isSshUri(snapshot.rootPath)) {
+            const remote::SshUri uri = remote::parseSshUri(snapshot.rootPath);
+            cleanedRoot = QDir::cleanPath(uri.remotePath);
+        } else {
+            cleanedRoot = QDir::cleanPath(snapshot.rootPath);
+        }
         m_rootShouldExpand = false;
         for (const QString &p : snapshot.expandedFolders) {
             if (QDir::cleanPath(p) == cleanedRoot) {
@@ -1366,10 +1397,13 @@ void FolderAsWorkspaceDock::applySavedTreeState(const WorkspaceStateSnapshot &sn
 WorkspaceStateSnapshot FolderAsWorkspaceDock::captureState() const
 {
     WorkspaceStateSnapshot s;
-    const QString rp = rootPath();
-    // SSH URIs must NOT be passed through QDir::cleanPath (it collapses the
-    // double-slash in "ssh://"). Local paths are cleaned for normalization.
-    s.rootPath = remote::isSshUri(rp) ? rp : QDir::cleanPath(rp);
+    // For SSH workspaces the memo key is the full ssh:// URI (matches the lookup
+    // in openFolderAsWorkspacePath). For local workspaces use the cleaned path.
+    if (!m_sshWorkspaceUri.isEmpty()) {
+        s.rootPath = m_sshWorkspaceUri;
+    } else {
+        s.rootPath = QDir::cleanPath(rootPath());
+    }
     s.activeTabIndex = ui->tabs->currentIndex();
     s.lastUsedEpochMs = QDateTime::currentMSecsSinceEpoch();
 
@@ -1415,12 +1449,19 @@ WorkspaceStateSnapshot FolderAsWorkspaceDock::captureState() const
 bool FolderAsWorkspaceDock::ancestorVetoed(const QString &cleanedChild) const
 {
     if (m_userVetoed.isEmpty()) return false;
-    // Walk up parents until root. QFileInfo::absolutePath returns the cleaned
-    // parent for an already-cleaned input.
-    QString cur = QFileInfo(cleanedChild).absolutePath();
-    while (!cur.isEmpty() && cur != QFileInfo(cur).absolutePath()) {
-        if (m_userVetoed.contains(cur)) return true;
-        cur = QFileInfo(cur).absolutePath();
+    const bool isSsh = !m_sshWorkspaceUri.isEmpty();
+    QString cur = cleanedChild;
+    for (;;) {
+        QString parent;
+        if (isSsh) {
+            const int slash = cur.lastIndexOf(QLatin1Char('/'));
+            parent = (slash > 0) ? cur.left(slash) : QString();
+        } else {
+            parent = QFileInfo(cur).absolutePath();
+        }
+        if (parent.isEmpty() || parent == cur) break;
+        if (m_userVetoed.contains(parent)) return true;
+        cur = parent;
     }
     return false;
 }
@@ -1436,13 +1477,9 @@ void FolderAsWorkspaceDock::onDirectoryLoaded(const QString &loadedPath)
         const QString cleanRoot = QDir::cleanPath(rootPath());
         if (!cleanRoot.isEmpty() && QDir::cleanPath(loadedPath) == cleanRoot) {
             m_rootExpandApplied = true;
-            if (m_rootShouldExpand) {
+            if (m_rootShouldExpand && !m_userVetoed.contains(cleanRoot)) {
                 const QModelIndex pr = proxy->index(0, 0, QModelIndex());
                 if (pr.isValid()) {
-                    // m_programmaticToggle so the resulting expanded() emission
-                    // doesn't dirty state. Live-session collapses of the root are
-                    // handled by the normal onTreeCollapsed/m_userVetoed path now
-                    // that PR is a real node.
                     m_programmaticToggle = true;
                     ui->treeView->setExpanded(pr, true);
                     m_programmaticToggle = false;
@@ -1485,7 +1522,14 @@ void FolderAsWorkspaceDock::onDirectoryLoaded(const QString &loadedPath)
     const QVariant pendingItemVar = property("pendingCurrentItem");
     if (pendingItemVar.isValid()) {
         const QString pendingItem = pendingItemVar.toString();
-        if (QFileInfo(pendingItem).absolutePath() == key) {
+        QString itemParent;
+        if (!m_sshWorkspaceUri.isEmpty()) {
+            const int slash = pendingItem.lastIndexOf(QLatin1Char('/'));
+            itemParent = (slash > 0) ? pendingItem.left(slash) : QString();
+        } else {
+            itemParent = QFileInfo(pendingItem).absolutePath();
+        }
+        if (itemParent == key) {
             const QModelIndex itemSrc = fsModel ? fsModel->indexForPath(pendingItem) : QModelIndex();
             if (itemSrc.isValid()) {
                 const QModelIndex itemIdx = proxy->mapFromSource(itemSrc);

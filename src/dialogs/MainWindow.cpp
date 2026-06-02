@@ -2547,7 +2547,9 @@ void MainWindow::registerWorkspaceDock(FolderAsWorkspaceDock *dock)
             }
         }
         const WorkspaceStateSnapshot snap = self->captureState();
-        m_workspaceStateMemo.insert(QDir::cleanPath(path), snap);
+        const QString memoKey = remote::isSshUri(snap.rootPath) ? snap.rootPath
+                                                                 : QDir::cleanPath(path);
+        m_workspaceStateMemo.insert(memoKey, snap);
         persistOneWorkspaceState(snap);
         // Evict this workspace's file index — it is stale once the dock is gone
         // and would otherwise leak across the app's lifetime.
@@ -5011,7 +5013,9 @@ void MainWindow::loadAllWorkspaceStates() const
         }
         settings->endGroup();
 
-        m_workspaceStateMemo.insert(QDir::cleanPath(s.rootPath), s);
+        const QString key = remote::isSshUri(s.rootPath) ? s.rootPath
+                                                            : QDir::cleanPath(s.rootPath);
+        m_workspaceStateMemo.insert(key, s);
     }
     settings->endArray();
     settings->endGroup();
@@ -5023,7 +5027,9 @@ void MainWindow::persistWorkspaceStatesMerged(const QVector<WorkspaceStateSnapsh
     // matching rootPath. Other memo entries (closed workspaces) survive.
     for (const WorkspaceStateSnapshot &s : live) {
         if (s.rootPath.isEmpty()) continue;
-        m_workspaceStateMemo.insert(QDir::cleanPath(s.rootPath), s);
+        const QString key = remote::isSshUri(s.rootPath) ? s.rootPath
+                                                         : QDir::cleanPath(s.rootPath);
+        m_workspaceStateMemo.insert(key, s);
     }
     writeWorkspaceStatesArray(app->getSettings(), m_workspaceStateMemo);
 }
@@ -5031,7 +5037,9 @@ void MainWindow::persistWorkspaceStatesMerged(const QVector<WorkspaceStateSnapsh
 void MainWindow::persistOneWorkspaceState(const WorkspaceStateSnapshot &snapshot) const
 {
     if (snapshot.rootPath.isEmpty()) return;
-    m_workspaceStateMemo.insert(QDir::cleanPath(snapshot.rootPath), snapshot);
+    const QString key = remote::isSshUri(snapshot.rootPath) ? snapshot.rootPath
+                                                            : QDir::cleanPath(snapshot.rootPath);
+    m_workspaceStateMemo.insert(key, snapshot);
     writeWorkspaceStatesArray(app->getSettings(), m_workspaceStateMemo);
 }
 

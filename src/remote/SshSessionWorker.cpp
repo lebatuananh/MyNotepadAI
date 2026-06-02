@@ -884,13 +884,6 @@ void SshSessionWorker::onSocketActivity()
     // A single readable/writable edge -> one bounded pump sweep. Not recursive.
     pump();
     // The SFTP layer is multiplexed on the SAME socket.
-    const int sftpBulkPending = m_sftpBulkQueue.size();
-    const int sftpMetaPending = m_sftpMetaQueue.size();
-    const int execPending = m_execOps.size();
-    if (sftpBulkPending > 0 || sftpMetaPending > 0 || execPending > 0) {
-        emit debugEvent(QStringLiteral("socket-activity: bulk=%1 meta=%2 exec=%3")
-                            .arg(sftpBulkPending).arg(sftpMetaPending).arg(execPending));
-    }
     serviceSftp();
     // Exec channels share the same socket too.
     serviceExec();
@@ -1086,10 +1079,6 @@ void SshSessionWorker::serviceSftpLane(SftpLane lane, QList<SftpOp> &queue, bool
     while (!queue.isEmpty()) {
         const ISshTransport::Step initStep = ensureSftpLaneInited(lane, inited);
         if (initStep == ISshTransport::Step::Again) {
-            emit debugEvent(QStringLiteral("sftp-lane-init-again: lane=%1 queue=%2 errno=%3")
-                                .arg(lane == SftpLane::Bulk ? "bulk" : "meta")
-                                .arg(queue.size())
-                                .arg(m_transport->lastErrno()));
             return;
         }
         if (initStep == ISshTransport::Step::Error) {
@@ -1099,11 +1088,6 @@ void SshSessionWorker::serviceSftpLane(SftpLane lane, QList<SftpOp> &queue, bool
         }
         SftpOp &op = queue.first();
         if (!advanceSftpOp(lane, op)) {
-            emit debugEvent(QStringLiteral("sftp-lane-again: lane=%1 req=%2 phase=%3 errno=%4")
-                                .arg(lane == SftpLane::Bulk ? "bulk" : "meta")
-                                .arg(op.reqId)
-                                .arg(static_cast<int>(op.phase))
-                                .arg(m_transport->lastErrno()));
             return; // EAGAIN mid-op: resume on the next socket edge
         }
         queue.removeFirst(); // finished (a *Done signal was emitted)
@@ -1118,8 +1102,6 @@ bool SshSessionWorker::advanceSftpOp(SftpLane lane, SftpOp &op)
     case SftpKind::Stat: {
         const ISshTransport::SftpStatResult r = m_transport->sftpStat(tl, op.path);
         if (r.step == ISshTransport::Step::Again) {
-            emit debugEvent(QStringLiteral("sftp-stat-again: req=%1 path=%2")
-                                .arg(op.reqId).arg(op.path));
             return false;
         }
         m_sawInboundSinceKeepalive = true; // FIX-3
@@ -1139,8 +1121,6 @@ bool SshSessionWorker::advanceSftpOp(SftpLane lane, SftpOp &op)
         if (op.phase == SftpPhase::NeedOpen) {
             const ISshTransport::SftpOpenResult r = m_transport->sftpOpen(tl, op.path, /*forWrite=*/false);
             if (r.step == ISshTransport::Step::Again) {
-                emit debugEvent(QStringLiteral("sftp-read-open-again: req=%1 path=%2")
-                                    .arg(op.reqId).arg(op.path));
                 return false;
             }
             if (r.step == ISshTransport::Step::Error) {
@@ -1149,8 +1129,6 @@ bool SshSessionWorker::advanceSftpOp(SftpLane lane, SftpOp &op)
             }
             op.handleId = r.handleId;
             op.phase = SftpPhase::Transfer;
-            emit debugEvent(QStringLiteral("sftp-read-opened: req=%1 handle=%2")
-                                .arg(op.reqId).arg(op.handleId));
         }
         for (;;) {
             ISshTransport::ReadResult rr = m_transport->sftpRead(tl, op.handleId);
@@ -1171,8 +1149,6 @@ bool SshSessionWorker::advanceSftpOp(SftpLane lane, SftpOp &op)
                 return true;
             }
             if (rr.again) {
-                emit debugEvent(QStringLiteral("sftp-read-again: req=%1 buffered=%2")
-                                    .arg(op.reqId).arg(op.buffer.size()));
                 return false;
             }
         }
@@ -1185,8 +1161,6 @@ bool SshSessionWorker::advanceSftpOp(SftpLane lane, SftpOp &op)
         if (op.phase == SftpPhase::NeedOpen) {
             const ISshTransport::SftpOpenResult r = m_transport->sftpOpen(tl, op.path, /*forWrite=*/false);
             if (r.step == ISshTransport::Step::Again) {
-                emit debugEvent(QStringLiteral("sftp-stream-open-again: req=%1 path=%2")
-                                    .arg(op.reqId).arg(op.path));
                 return false;
             }
             if (r.step == ISshTransport::Step::Error) {
@@ -1195,8 +1169,6 @@ bool SshSessionWorker::advanceSftpOp(SftpLane lane, SftpOp &op)
             }
             op.handleId = r.handleId;
             op.phase = SftpPhase::Transfer;
-            emit debugEvent(QStringLiteral("sftp-stream-opened: req=%1 handle=%2")
-                                .arg(op.reqId).arg(op.handleId));
         }
         for (;;) {
             ISshTransport::ReadResult rr = m_transport->sftpRead(tl, op.handleId);
@@ -1218,8 +1190,6 @@ bool SshSessionWorker::advanceSftpOp(SftpLane lane, SftpOp &op)
                 return true;
             }
             if (rr.again) {
-                emit debugEvent(QStringLiteral("sftp-stream-again: req=%1")
-                                    .arg(op.reqId));
                 return false;
             }
         }

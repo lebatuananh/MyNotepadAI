@@ -329,6 +329,9 @@ void RemoteFileSystemModel::setRootPath(const QString &path)
     beginResetModel();
     m_root.reset();
     m_rootPath = cleanRemote(path);
+    m_deferredPaths.clear();
+    m_inFlight = 0;
+    m_draining = false;
     if (!m_rootPath.isEmpty()) {
         m_root = std::make_unique<Node>();
         m_root->isDir = true; // a workspace root is always a directory
@@ -352,14 +355,28 @@ void RemoteFileSystemModel::beginFetch(Node *node)
     if (!node || !node->isDir || node->listing || !m_lister) {
         return;
     }
+
+    const QString path = pathOf(node);
+
+    if (m_inFlight >= kMaxInFlight) {
+        if (!m_deferredPaths.contains(path)) {
+            node->listing = true;
+            const QModelIndex idx = indexOfNode(node);
+            if (idx.isValid()) {
+                emit dataChanged(idx, idx, {LoadingRole});
+            }
+            m_deferredPaths.append(path);
+        }
+        return;
+    }
+
     node->listing = true;
-    // Repaint the node so a delegate can show the spinner (LoadingRole flipped).
     const QModelIndex idx = indexOfNode(node);
     if (idx.isValid()) {
         emit dataChanged(idx, idx, {LoadingRole});
     }
 
-    const QString path = pathOf(node);
+    ++m_inFlight;
     QPointer<RemoteFileSystemModel> self(this);
     m_lister(path, [self, path](bool ok, const QList<Entry> &entries,
                                 const QString &error) {
@@ -374,10 +391,13 @@ void RemoteFileSystemModel::onListArrived(const QString &path, bool ok,
                                           const QString &error)
 {
     Q_UNUSED(error);
+    --m_inFlight;
+
     // Re-resolve by path: a re-root (or a parent removal) between request and
     // reply may have replaced/freed the original node.
     Node *node = nodeForPath(path);
     if (!node) {
+        drainDeferred();
         return;
     }
     node->listing = false;
@@ -389,6 +409,7 @@ void RemoteFileSystemModel::onListArrived(const QString &path, bool ok,
             emit dataChanged(idx, idx, {LoadingRole});
         }
         emit directoryLoaded(path); // unblock the dock's pending-expansion wait
+        drainDeferred();
         return;
     }
 
@@ -404,6 +425,7 @@ void RemoteFileSystemModel::onListArrived(const QString &path, bool ok,
         emit dataChanged(idx, idx, {LoadingRole}); // spinner off
     }
     emit directoryLoaded(path);
+    drainDeferred();
 }
 
 void RemoteFileSystemModel::populate(Node *node, const QList<Entry> &entries)
@@ -518,6 +540,31 @@ void RemoteFileSystemModel::notifyPathsChanged(const QSet<QString> &cleanPaths)
         if (!idx.isValid()) continue;
         emit dataChanged(idx, idx, roles);
     }
+}
+
+void RemoteFileSystemModel::drainDeferred()
+{
+    if (m_draining) return;
+    m_draining = true;
+    while (m_inFlight < kMaxInFlight && !m_deferredPaths.isEmpty()) {
+        const QString path = m_deferredPaths.takeFirst();
+        Node *node = nodeForPath(path);
+        if (!node || !node->isDir || node->listed) {
+            if (node) node->listing = false;
+            continue;
+        }
+
+        // node->listing is already true (set when deferred). Issue the actual request.
+        ++m_inFlight;
+        QPointer<RemoteFileSystemModel> self(this);
+        m_lister(path, [self, path](bool ok, const QList<Entry> &entries,
+                                    const QString &error) {
+            if (self) {
+                self->onListArrived(path, ok, entries, error);
+            }
+        });
+    }
+    m_draining = false;
 }
 
 } // namespace remote

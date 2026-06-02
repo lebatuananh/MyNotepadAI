@@ -78,7 +78,29 @@ ApplicationSetting<QString> rootPathSetting{"FolderAsWorkspace/RootPath"};
 
 namespace {
 
-// (No helpers — entries are read from GitStatusModel::allEntries() directly.)
+// Segments that generate excessive SFTP readdir traffic during session restore.
+// For SSH workspaces, skip restoring tree expansion into paths containing these.
+bool containsHeavySegment(const QString &path)
+{
+    static const QStringList heavy = {
+        QStringLiteral("node_modules"),
+        QStringLiteral(".git"),
+        QStringLiteral("__pycache__"),
+        QStringLiteral(".cache"),
+        QStringLiteral(".tox"),
+        QStringLiteral("vendor"),
+        QStringLiteral("target"),
+    };
+    for (const QString &seg : heavy) {
+        const int idx = path.indexOf(seg);
+        if (idx < 0) continue;
+        const bool atStart = (idx == 0 || path[idx - 1] == QLatin1Char('/'));
+        const int end = idx + seg.size();
+        const bool atEnd = (end >= path.size() || path[end] == QLatin1Char('/'));
+        if (atStart && atEnd) return true;
+    }
+    return false;
+}
 
 } // namespace
 
@@ -1453,6 +1475,10 @@ void FolderAsWorkspaceDock::applySavedTreeState(const WorkspaceStateSnapshot &sn
     for (const QString &p : snapshot.expandedFolders) {
         if (p.isEmpty()) continue;
         const QString cleaned = QDir::cleanPath(p);
+        // SSH: skip paths inside heavy directories (node_modules, .git, etc.)
+        // to avoid flooding the serial SFTP meta lane with hundreds of readdir
+        // requests during session restore.
+        if (isSsh && containsHeavySegment(cleaned)) continue;
         // For SSH (POSIX) paths, QFileInfo::absolutePath resolves against the
         // local drive on Windows — use string-based parent extraction instead.
         QString parent;

@@ -24,6 +24,7 @@
 #include <QList>
 #include <QSet>
 #include <QString>
+#include <QStringList>
 
 #include <functional>
 #include <memory>
@@ -177,9 +178,21 @@ private:
     // + begin/endInsertRows so the view/proxy track precisely.
     void applyDiff(Node *node, const QList<Entry> &entries);
 
+    // Drain deferred fetches up to the concurrency cap.
+    void drainDeferred();
+
     ListFn m_lister;
     std::unique_ptr<Node> m_root;   // R, the workspace dir node (null if unrooted)
     QString m_rootPath;             // cleaned absolute root path
+
+    // Concurrency limiter: at most kMaxInFlight readdir requests in the SFTP
+    // meta-lane at once. Excess fetches are deferred (by path) and drained as
+    // in-flight ones complete. Prevents session-restore cascades from flooding
+    // the SFTP queue with 800+ readdir ops that block interactive use for minutes.
+    static constexpr int kMaxInFlight = 8;
+    int m_inFlight = 0;
+    bool m_draining = false;
+    QStringList m_deferredPaths;
 
     PathStatusIndex *m_statusIndex = nullptr;
     bool m_colorsEnabled = false;

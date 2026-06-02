@@ -678,9 +678,19 @@ void RemoteTransferManager::createRemoteArchive()
             int i = 0;
             while (i < commonBase.size() && i < dir.size() && commonBase[i] == dir[i])
                 ++i;
-            commonBase = commonBase.left(i);
-            const int lastSlash = commonBase.lastIndexOf(QLatin1Char('/'));
-            commonBase = (lastSlash > 0) ? commonBase.left(lastSlash) : QStringLiteral("/");
+            // Truncate to last slash only if the common prefix doesn't land on a
+            // directory boundary. A boundary means: either we matched all of both
+            // strings, or the shorter one is exhausted AND the next char in the
+            // longer one is '/'.
+            const bool onBoundary = (i >= dir.size() || dir[i] == QLatin1Char('/'))
+                && (i >= commonBase.size() || commonBase[i] == QLatin1Char('/'));
+            if (onBoundary) {
+                commonBase = commonBase.left(i);
+            } else {
+                commonBase = commonBase.left(i);
+                const int lastSlash = commonBase.lastIndexOf(QLatin1Char('/'));
+                commonBase = (lastSlash > 0) ? commonBase.left(lastSlash) : QStringLiteral("/");
+            }
         }
     }
     if (commonBase.isEmpty()) commonBase = QStringLiteral("/");
@@ -833,9 +843,15 @@ void RemoteTransferManager::extractLocalArchive()
             int i = 0;
             while (i < commonBase.size() && i < dir.size() && commonBase[i] == dir[i])
                 ++i;
-            commonBase = commonBase.left(i);
-            const int lastSlash = commonBase.lastIndexOf(QLatin1Char('/'));
-            commonBase = (lastSlash > 0) ? commonBase.left(lastSlash) : QStringLiteral("/");
+            const bool onBoundary = (i >= dir.size() || dir[i] == QLatin1Char('/'))
+                && (i >= commonBase.size() || commonBase[i] == QLatin1Char('/'));
+            if (onBoundary) {
+                commonBase = commonBase.left(i);
+            } else {
+                commonBase = commonBase.left(i);
+                const int lastSlash = commonBase.lastIndexOf(QLatin1Char('/'));
+                commonBase = (lastSlash > 0) ? commonBase.left(lastSlash) : QStringLiteral("/");
+            }
         }
     }
     if (commonBase.isEmpty()) commonBase = QStringLiteral("/");
@@ -846,10 +862,13 @@ void RemoteTransferManager::extractLocalArchive()
     const QString firstRel = m_downloadManifest[0].remotePath.mid(commonBase.size() + 1);
     // chopped() removes n chars from the end; firstRel may be empty if the file is
     // directly under commonBase (no sub-directory). Guard against that case.
-    const QString localBase = firstRel.isEmpty()
+    QString localBase = firstRel.isEmpty()
         ? m_downloadManifest[0].localPath.left(
               m_downloadManifest[0].localPath.lastIndexOf(QLatin1Char('/')))
         : m_downloadManifest[0].localPath.chopped(firstRel.size());
+    // Strip trailing separator — bsdtar on Windows can misinterpret trailing slash.
+    while (localBase.endsWith(QLatin1Char('/')) || localBase.endsWith(QLatin1Char('\\')))
+        localBase.chop(1);
 
     QDir().mkpath(localBase);
 
@@ -857,9 +876,28 @@ void RemoteTransferManager::extractLocalArchive()
     QPointer<RemoteTransferManager> guard(this);
 
     QProcess *proc = new QProcess(this);
+#ifdef Q_OS_WIN
+    // Prefer Windows built-in bsdtar — Git's GNU tar may mishandle Windows paths.
+    const QString sysTar = QStringLiteral("C:/Windows/System32/tar.exe");
+    proc->setProgram(QFileInfo::exists(sysTar) ? sysTar : QStringLiteral("tar"));
+#else
     proc->setProgram(QStringLiteral("tar"));
+#endif
     proc->setArguments({QStringLiteral("xf"), localArchivePath,
                         QStringLiteral("-C"), localBase});
+
+    connect(proc, &QProcess::errorOccurred, this,
+            [this, proc, localArchivePath, guard](QProcess::ProcessError error) {
+        if (error != QProcess::FailedToStart) return;
+        proc->deleteLater();
+        QFile::remove(localArchivePath);
+        if (guard.isNull()) return;
+        m_localArchivePath.clear();
+        cleanupRemoteArchive();
+        // Tar unavailable locally — fall back to per-file download.
+        m_manifestIdx = 0;
+        downloadNextFile();
+    });
 
     connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this, proc, localArchivePath, guard](int exitCode, QProcess::ExitStatus) {
@@ -869,13 +907,23 @@ void RemoteTransferManager::extractLocalArchive()
 
         if (guard.isNull()) return;
 
-        if (exitCode != 0) {
+        // Verify extraction: check that at least one file actually landed on disk.
+        bool extractionValid = false;
+        for (const auto &entry : m_downloadManifest) {
+            if (QFileInfo::exists(entry.localPath)) {
+                extractionValid = true;
+                break;
+            }
+        }
+
+        if (exitCode != 0 || !extractionValid) {
             cleanupRemoteArchive();
-            emit transferError(tr("Local extraction failed: %1")
-                .arg(QString::fromUtf8(proc->readAllStandardError())));
-            m_queue.removeFirst();
-            m_active = false;
-            startNextTransfer();
+            if (exitCode != 0) {
+                // Tar reported failure — fall back to per-file download.
+            }
+            // Extraction produced no files (e.g. path mismatch on Windows).
+            m_manifestIdx = 0;
+            downloadNextFile();
             return;
         }
 

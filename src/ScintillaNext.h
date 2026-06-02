@@ -84,6 +84,7 @@ public:
     bool isRemote() const;
     QString remoteUri() const { return remoteUriString; }
     QString remotePath() const { return remoteFilePath; }
+    void setRemoteIdentity(const QString &newRemotePath, const QString &newUri);
 
     enum class LoadState {
         Idle,    // local buffer or fully-loaded remote buffer

@@ -359,6 +359,15 @@ bool ScintillaNext::isRemote() const
     return fsBackend && fsBackend->isRemote();
 }
 
+void ScintillaNext::setRemoteIdentity(const QString &newRemotePath, const QString &newUri)
+{
+    remoteFilePath = newRemotePath;
+    remoteUriString = newUri;
+    const int slash = newRemotePath.lastIndexOf(QLatin1Char('/'));
+    name = slash >= 0 ? newRemotePath.mid(slash + 1) : newRemotePath;
+    emit renamed();
+}
+
 bool ScintillaNext::fillFromBytes(const QByteArray &data)
 {
     // Mirror readFromDisk's fill: preallocate, BOM-detect on the head, strip a
@@ -675,6 +684,20 @@ QFileDevice::FileError ScintillaNext::saveRemote()
 void ScintillaNext::reload()
 {
     Q_ASSERT(isFile());
+
+    if (isRemote()) {
+        const int line = firstVisibleLine();
+        const int caret = selectionNCaret(mainSelection());
+        const int anchor = selectionNAnchor(mainSelection());
+        QPointer<ScintillaNext> guard(this);
+        retryLoad([guard, line, caret, anchor](bool ok, const QString &) {
+            if (!guard || !ok) return;
+            guard->scrollVertical(line, 0);
+            guard->setSelection(caret, anchor);
+            emit guard->reloaded();
+        });
+        return;
+    }
 
     // Ensure the file still exists.
     if (!QFile::exists(fileInfo.canonicalFilePath())) {

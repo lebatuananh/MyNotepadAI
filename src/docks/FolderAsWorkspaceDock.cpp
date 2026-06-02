@@ -1168,10 +1168,13 @@ void FolderAsWorkspaceDock::showGitTab()
 
 void FolderAsWorkspaceDock::revealAndSelectPath(const QString &absolutePath)
 {
-    const QString cleaned = QDir::cleanPath(absolutePath);
+    const bool isSsh = !m_sshWorkspaceUri.isEmpty();
+    const QString cleaned = isSsh ? remote::parseSshUri(absolutePath).remotePath
+                                  : QDir::cleanPath(absolutePath);
     if (cleaned.isEmpty()) return;
 
-    const QString root = QDir::cleanPath(rootPath());
+    const QString root = isSsh ? remote::parseSshUri(m_sshWorkspaceUri).remotePath
+                               : QDir::cleanPath(rootPath());
     if (root.isEmpty()) return;
 
 #ifdef Q_OS_WIN

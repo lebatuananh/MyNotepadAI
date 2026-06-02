@@ -55,6 +55,7 @@
 #include <QFontDatabase>
 #include <QDateTime>
 #include <QKeyEvent>
+#include <memory>
 
 #ifdef Q_OS_WIN
 #include <QSimpleUpdater.h>
@@ -783,7 +784,11 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
     connect(ui->actionCopyFullPath, &QAction::triggered, this, [this]() {
         auto editor = currentEditor();
         if (editor->isFile()) {
-            QApplication::clipboard()->setText(editor->getFilePath());
+            if (editor->isRemote()) {
+                QApplication::clipboard()->setText(editor->remotePath());
+            } else {
+                QApplication::clipboard()->setText(editor->getFilePath());
+            }
         }
     });
     connect(ui->actionCopyFileName, &QAction::triggered, this, [this]() {
@@ -3361,6 +3366,7 @@ namespace {
 QString normalizeForContainment(const QString &p)
 {
     if (p.isEmpty()) return QString();
+    if (remote::isSshUri(p)) return p;
     const QString canonical = QFileInfo(p).canonicalFilePath();
     return canonical.isEmpty() ? QDir::cleanPath(p) : canonical;
 }
@@ -3810,6 +3816,70 @@ void MainWindow::renameFile()
     ScintillaNext *editor = currentEditor();
 
     if (editor->isFile()) {
+        if (editor->isRemote()) {
+            const remote::SshUri uri = remote::parseSshUri(editor->getFilePath());
+            if (!uri.valid) return;
+            remote::ExecutionContextRegistry *registry = app ? app->getExecutionContextRegistry() : nullptr;
+            if (!registry) return;
+            remote::ExecutionContext *ctx = registry->remoteContext(uri.profileId);
+            if (!ctx) return;
+            auto *backend = qobject_cast<remote::RemoteFsBackend *>(ctx->fsBackend());
+            if (!backend) return;
+
+            const QString oldName = uri.remotePath.mid(uri.remotePath.lastIndexOf(QLatin1Char('/')) + 1);
+            bool ok = false;
+            const QString newName = QInputDialog::getText(this, tr("Rename"),
+                tr("New name:"), QLineEdit::Normal, oldName, &ok);
+            if (!ok || newName.isEmpty() || newName == oldName) return;
+            if (newName.contains(QLatin1Char('/')) || newName.contains(QLatin1Char('\\'))
+                || newName.contains(QStringLiteral(".."))) {
+                QMessageBox::warning(this, tr("Rename"), tr("Invalid name."));
+                return;
+            }
+
+            const QString parentDir = remote::posixParentPath(uri.remotePath);
+            const QString newRemotePath = parentDir + QLatin1Char('/') + newName;
+            const QString newUri = remote::formatSshUri(uri.profileId, newRemotePath);
+            QPointer<ScintillaNext> guard(editor);
+            QPointer<MainWindow> self(this);
+
+            auto doRename = [backend, guard, self, uri, newRemotePath, newUri, newName]() {
+                if (!guard || !self) return;
+                backend->renameAsync(uri.remotePath, newRemotePath,
+                    [guard, self, newRemotePath, newUri, newName](bool renameOk, const QString &error) {
+                        if (!self) return;
+                        if (!renameOk) {
+                            QMessageBox::warning(self, tr("Rename"),
+                                tr("Could not rename to \"%1\": %2").arg(newName, error));
+                            return;
+                        }
+                        if (guard) {
+                            guard->setRemoteIdentity(newRemotePath, newUri);
+                        }
+                    });
+            };
+
+            if (!editor->isSavedToDisk()) {
+                auto handled = std::make_shared<bool>(false);
+                connect(editor, &ScintillaNext::saved, this, [=]() {
+                    if (*handled) return;
+                    *handled = true;
+                    doRename();
+                }, Qt::SingleShotConnection);
+                connect(editor, &ScintillaNext::saveFailed, this, [=](const QString &error) {
+                    if (*handled) return;
+                    *handled = true;
+                    if (!self) return;
+                    QMessageBox::warning(self, tr("Rename"),
+                        tr("Cannot rename \"%1\": save failed — %2").arg(newName, error));
+                }, Qt::SingleShotConnection);
+                editor->save();
+            } else {
+                doRename();
+            }
+            return;
+        }
+
         const QString filter = app->getFileDialogFilter();
         QString selectedFilter = app->getFileDialogFilterForLanguage(editor->languageName);
         QString fileName = FileDialogHelpers::getSaveFileName(this, tr("Rename"), editor->getFilePath(), filter, &selectedFilter);
@@ -4884,6 +4954,24 @@ void MainWindow::tabBarRightClicked(ScintillaNext *editor)
         const QString filePath = editor->isFile() ? editor->getFilePath() : QString();
         const bool isFile = editor->isFile();
         ui->actionShowInWorkspace->setEnabled(resolveShowInWorkspaceDock(filePath, isFile) != nullptr);
+    }
+
+    // SSH remote gates: disable local-only actions, enable remote-capable ones.
+    {
+        const bool isRemote = editor->isRemote();
+        ui->actionShowInExplorer->setEnabled(editor->isFile() && !isRemote);
+        ui->actionSaveAs->setEnabled(!isRemote);
+        if (isRemote) {
+            ui->actionSaveAs->setToolTip(tr("Not available for remote files"));
+        } else {
+            ui->actionSaveAs->setToolTip(QString());
+        }
+
+        const QString workspaceRoot = currentWorkspaceRoot();
+        const QString activeFilePath = editor->isFile() ? editor->getFilePath() : QString();
+        remote::ExecutionContext *ctx = activeExecutionContext();
+        ui->actionOpenTerminalInFolder->setEnabled(
+            TerminalCwdResolver::canOpenInFolderForContext(ctx, activeFilePath, editor->isFile(), workspaceRoot));
     }
 
     auto *menu = buildMenu(actionNames);

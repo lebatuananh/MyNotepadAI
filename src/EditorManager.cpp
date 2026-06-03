@@ -208,6 +208,17 @@ EditorManager::EditorManager(ApplicationSettings *settings, QObject *parent)
             }
         }
     });
+
+    connect(settings, &ApplicationSettings::autoCompletionChanged, this, [=](bool b){
+        for (auto &editor : getEditors()) {
+            AutoCompletion *decorator = editor->findChild<AutoCompletion *>(QString(), Qt::FindDirectChildrenOnly);
+            if (decorator) {
+                decorator->setEnabled(b);
+                if (!b && editor->autoCActive())
+                    editor->autoCCancel();
+            }
+        }
+    });
 }
 
 ScintillaNext *EditorManager::createEditor(const QString &name)
@@ -423,12 +434,13 @@ void EditorManager::setupEditor(ScintillaNext *editor)
     // are not needed for the initial paint.
     QPointer<ScintillaNext> guard(editor);
     const bool urlHighlighting = settings->urlHighlighting();
+    const bool autoCompletion = settings->autoCompletion();
     const bool gitGutterEnabled = settings->gitGutterEnabled();
     const bool inlineBlameEnabled = settings->inlineBlameEnabled();
     const bool minimapEnabled = settings->minimapEnabled();
     const bool isFile = editor->isFile();
 
-    QTimer::singleShot(0, editor, [this, guard, urlHighlighting, gitGutterEnabled,
+    QTimer::singleShot(0, editor, [this, guard, urlHighlighting, autoCompletion, gitGutterEnabled,
                                     inlineBlameEnabled, minimapEnabled, isFile]() {
         if (!guard) return;
         ScintillaNext *editor = guard.data();
@@ -449,7 +461,7 @@ void EditorManager::setupEditor(ScintillaNext *editor)
         ai->setEnabled(true);
 
         AutoCompletion *ac = new AutoCompletion(editor);
-        ac->setEnabled(true);
+        ac->setEnabled(autoCompletion);
 
         URLFinder *uf = new URLFinder(editor);
         uf->setEnabled(urlHighlighting);

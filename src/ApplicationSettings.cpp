@@ -85,6 +85,7 @@ CREATE_SETTING(Editor, AdditionalWordChars, additionalWordChars, QString, QStrin
 CREATE_SETTING(Editor, DefaultEOLMode, defaultEOLMode, QString, QStringLiteral(""))
 CREATE_SETTING(Editor, URLHighlighting, urlHighlighting, bool, true)
 CREATE_SETTING(Editor, ShowLineNumbers, showLineNumbers, bool, true)
+CREATE_SETTING(Editor, AutoCompletion, autoCompletion, bool, true)
 
 // AI chat-view font. UseDefault=true follows the editor's Default Font (current
 // behavior); when false the chat uses its own Family/SizePt/Sharpen. The

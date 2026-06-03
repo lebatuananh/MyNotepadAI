@@ -229,6 +229,13 @@
         </widget>
        </item>
        <item>
+        <widget class="QCheckBox" name="checkBoxAutoCompletion">
+         <property name="text">
+          <string>Auto Completion</string>
+         </property>
+        </widget>
+       </item>
+       <item>
         <widget class="QGroupBox" name="groupBoxChatFont">
          <property name="title">
           <string>Chat Font</string>

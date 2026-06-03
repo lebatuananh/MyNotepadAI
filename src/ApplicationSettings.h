@@ -132,6 +132,7 @@ public:
     DEFINE_SETTING(DefaultEOLMode, defaultEOLMode, QString)
     DEFINE_SETTING(URLHighlighting, urlHighlighting, bool)
     DEFINE_SETTING(ShowLineNumbers, showLineNumbers, bool)
+    DEFINE_SETTING(AutoCompletion, autoCompletion, bool)
 
     // AI chat-view font. UseDefault=true (the default) means the chat follows
     // the editor's Default Font (FontName/FontSize/FontHinting) and tracks it

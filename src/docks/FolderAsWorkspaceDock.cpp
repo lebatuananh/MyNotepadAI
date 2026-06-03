@@ -841,7 +841,6 @@ void FolderAsWorkspaceDock::wireTreeContextMenu()
         const bool isDir = proxy->isDir(index);
 
         auto *menu = new QMenu(this);
-        menu->setAttribute(Qt::WA_DeleteOnClose);
 
         emit treeContextMenuRequested(menu, absPath, isDir);
 
@@ -850,7 +849,8 @@ void FolderAsWorkspaceDock::wireTreeContextMenu()
             return;
         }
 
-        menu->popup(ui->treeView->viewport()->mapToGlobal(pos));
+        menu->exec(ui->treeView->viewport()->mapToGlobal(pos));
+        delete menu;
     });
 }
 

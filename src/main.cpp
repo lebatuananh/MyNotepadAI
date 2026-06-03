@@ -173,6 +173,8 @@ try
     sentry_options_set_database_path(sentryOptions, sentryDbPath.c_str());
     const std::string sentryRelease = std::string("NotepadAI@") + APP_VERSION;
     sentry_options_set_release(sentryOptions, sentryRelease.c_str());
+    if (const char *dmp = CrashHandler::minidumpPath(); dmp && dmp[0])
+        sentry_options_add_attachment(sentryOptions, dmp);
 #ifndef NDEBUG
     sentry_options_set_debug(sentryOptions, 1);
 #endif

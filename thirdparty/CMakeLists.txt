@@ -62,8 +62,8 @@ add_subdirectory(libssh2)
 CPMAddPackage(
     NAME sentry
     GITHUB_REPOSITORY getsentry/sentry-native
-    VERSION 0.7.17
-    GIT_TAG 0.7.17
+    VERSION 0.14.2
+    GIT_TAG 0.14.2
     OPTIONS
         "SENTRY_BACKEND inproc"
         "SENTRY_INTEGRATION_QT ON"

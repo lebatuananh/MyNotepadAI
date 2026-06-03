@@ -89,6 +89,9 @@ constexpr std::size_t kAltStackSize = 1 << 16;      // 64KB
 // ---- Static state (zero-initialised, no allocation in handler) ---------
 char g_primary_path[kPathMax]  = {0};
 char g_fallback_path[kPathMax] = {0};
+#ifdef _WIN32
+char g_minidump_path[kPathMax] = {0};
+#endif
 char g_section_buf[kSectionBufSize];
 std::atomic<bool> g_reporting{false};
 
@@ -241,6 +244,9 @@ void captureCwdPath()
     std::size_t p = 0;
     appendStr(g_primary_path, kPathMax, &p, cwd);
     appendStr(g_primary_path, kPathMax, &p, "\\crash_report.txt");
+    std::size_t mp = 0;
+    appendStr(g_minidump_path, kPathMax, &mp, cwd);
+    appendStr(g_minidump_path, kPathMax, &mp, "\\crash.dmp");
 #else
     if (getcwd(cwd, sizeof(cwd)) == nullptr) { g_primary_path[0] = '\0'; return; }
     std::size_t p = 0;
@@ -771,6 +777,21 @@ void writeStackTraceWindows(CrashFile *cf, CONTEXT *ctx)
     writeSection(cf, g_section_buf, &p);
 }
 
+void writeMinidump(EXCEPTION_POINTERS *info)
+{
+    if (g_minidump_path[0] == '\0') return;
+    HANDLE file = CreateFileA(g_minidump_path, GENERIC_WRITE, 0,
+                              nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return;
+    MINIDUMP_EXCEPTION_INFORMATION mei;
+    mei.ThreadId = GetCurrentThreadId();
+    mei.ExceptionPointers = info;
+    mei.ClientPointers = FALSE;
+    MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), file,
+                      MiniDumpNormal, &mei, nullptr, nullptr);
+    CloseHandle(file);
+}
+
 bool writeReportSeh(EXCEPTION_POINTERS *info, const char *origin)
 {
     CrashFile cf;
@@ -812,6 +833,7 @@ bool writeReportSeh(EXCEPTION_POINTERS *info, const char *origin)
     writeRawStack(&cf, info->ContextRecord);
     writeFooter(&cf);
     cf.close();
+    writeMinidump(info);
     return true;
 }
 
@@ -991,6 +1013,15 @@ void cppTerminateHandler()
 } // namespace
 
 namespace CrashHandler {
+
+const char *minidumpPath()
+{
+#ifdef _WIN32
+    return g_minidump_path;
+#else
+    return "";
+#endif
+}
 
 void install()
 {

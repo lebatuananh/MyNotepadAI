@@ -94,6 +94,7 @@ public slots:
     void configBranchTracking(const QString &branchName, const QString &remote);
     void fetch(const QString &remote = {});
     void pull(bool rebase);
+    void pullMerge();
     void push(const QString &remote = {}, bool setUpstream = false);
     void forcePush(const QString &remote = {});
     void renameBranch(const QString &oldName, const QString &newName, bool updateRemote);
@@ -136,6 +137,9 @@ signals:
     void errorOccurred(const GitError &err);
     void gitMissing();
     void dirtyTreePromptRequested(const QString &targetBranch);
+    void pullDivergedPromptRequested();
+    void pullConflicted();
+    void pushRejectedPromptRequested();
     void diffReady(const QString &relPath, bool stagedSide, const QByteArray &diff);
     void diffFailed(const QString &relPath, bool stagedSide, const QString &message);
     void fullDiffReady(const QByteArray &diff);

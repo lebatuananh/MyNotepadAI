@@ -37,6 +37,7 @@ struct GitError
         NoUpstream,
         DirtyTree,
         NonFastForward,
+        PullDiverged,
         MergeConflict,
         AuthFailed,
         NetworkFailed,

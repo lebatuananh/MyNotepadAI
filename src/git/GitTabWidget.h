@@ -88,6 +88,8 @@ private slots:
     void onError(const GitError &err);
     void onGitMissing();
     void onDirtyTreePrompt(const QString &target);
+    void onPullDivergedPrompt();
+    void onPushRejectedPrompt();
     void onRemoteOpProgress(const QString &line);
 
     void onTabChanged(int index);
@@ -124,6 +126,7 @@ private:
     bool m_initialized = false;
     bool m_suppressRepoCombo = false;
     bool m_committing = false;
+    bool m_pushAfterPull = false;
 
     GitController *m_controller = nullptr;
     GitOperationManager *m_opMgr = nullptr;

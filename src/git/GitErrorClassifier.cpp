@@ -75,6 +75,12 @@ GitError GitErrorClassifier::classify(int exitCode, const QByteArray &stderr_, c
                     tr("Push with --set-upstream to publish it."),
                     details, {QStringLiteral("set-upstream")});
 
+    if (rx(lowered, R"(not possible to fast-forward)"))
+        return make(GitError::PullDiverged,
+                    tr("Branches have diverged — fast-forward not possible."),
+                    tr("Merge or rebase to reconcile."),
+                    details, {QStringLiteral("pull-merge"), QStringLiteral("pull-rebase")});
+
     if (rx(lowered, R"(non-fast-forward|rejected.*fetch first|tip of your current branch is behind|updates were rejected)"))
         return make(GitError::NonFastForward,
                     tr("Push rejected: remote has commits you don't."),

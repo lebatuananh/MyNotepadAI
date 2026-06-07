@@ -482,6 +482,19 @@ void GitController::pull(bool rebase)
     enqueue(op);
 }
 
+void GitController::pullMerge()
+{
+    if (m_currentRepo.isEmpty()) return;
+    Op op;
+    op.kind = OpKind::Pull;
+    op.argv = { QStringLiteral("-C"), m_currentRepo, QStringLiteral("pull"),
+                QStringLiteral("--progress"), QStringLiteral("--no-ff") };
+    op.timeoutMs = kTimeoutRemote;
+    op.readErrAsProgress = true;
+    op.humanName = tr_("Pulling (merge)");
+    enqueue(op);
+}
+
 void GitController::push(const QString &remote, bool setUpstream)
 {
     if (m_currentRepo.isEmpty()) return;
@@ -976,6 +989,26 @@ void GitController::onRunFinished(int exit, const QByteArray &out, const QByteAr
         if (kind == OpKind::CatFileBlob) {
             emit catFileBlobFailed(m_current.meta.value(QStringLiteral("relPath")).toString(),
                                    QString::fromUtf8(err));
+            popAndAdvance();
+            return;
+        }
+        if (kind == OpKind::Pull && e.kind == GitError::PullDiverged) {
+            setState(State::Idle);
+            emit pullDivergedPromptRequested();
+            popAndAdvance();
+            return;
+        }
+        if (kind == OpKind::Pull && e.kind == GitError::MergeConflict) {
+            setState(State::Idle);
+            scheduleDebouncedRefresh();
+            emit pullConflicted();
+            popAndAdvance();
+            return;
+        }
+        if (kind == OpKind::Push
+            && (e.kind == GitError::NonFastForward || e.kind == GitError::PullDiverged)) {
+            setState(State::Idle);
+            emit pushRejectedPromptRequested();
             popAndAdvance();
             return;
         }

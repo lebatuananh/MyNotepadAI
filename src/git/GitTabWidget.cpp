@@ -527,6 +527,15 @@ void GitTabWidget::rebuildController()
     connect(m_controller, &GitController::gitMissing, this, &GitTabWidget::onGitMissing);
     connect(m_controller, &GitController::dirtyTreePromptRequested,
             this, &GitTabWidget::onDirtyTreePrompt);
+    connect(m_controller, &GitController::pullDivergedPromptRequested,
+            this, &GitTabWidget::onPullDivergedPrompt);
+    connect(m_controller, &GitController::pushRejectedPromptRequested,
+            this, &GitTabWidget::onPushRejectedPrompt);
+    connect(m_controller, &GitController::pullConflicted, this, [this]() {
+        m_pushAfterPull = false;
+        if (m_opMgr && m_controller && !m_controller->currentRepo().isEmpty())
+            m_opMgr->detectInProgressOperations(m_controller->currentRepo());
+    });
     connect(m_controller, &GitController::remoteOpProgress,
             this, &GitTabWidget::onRemoteOpProgress);
     connect(m_controller, &GitController::fullDiffReady, this, &GitTabWidget::onFullDiffReady);
@@ -973,6 +982,12 @@ void GitTabWidget::onOpSucceeded(const QString &name)
 {
     flashStatusSuccess(tr("%1 succeeded").arg(name));
     clearError();
+    // GitController's queue is serial — only one op runs at a time, so the
+    // first opSucceeded after setting the flag is always the recovery pull.
+    if (m_pushAfterPull && m_controller) {
+        m_pushAfterPull = false;
+        m_controller->push();
+    }
 }
 
 void GitTabWidget::onCommitSucceeded()
@@ -990,6 +1005,7 @@ void GitTabWidget::onCommitSucceeded()
 void GitTabWidget::onError(const GitError &err)
 {
     m_committing = false;
+    m_pushAfterPull = false;
     QString text = err.humanMessage;
     if (text.isEmpty()) text = tr("Git operation failed.");
     showError(text, err.hint, err.details);
@@ -1023,6 +1039,45 @@ void GitTabWidget::onDirtyTreePrompt(const QString &target)
         m_controller->switchBranch(target, GitController::BranchSwitchPolicy::StashAndSwitch);
     } else if (clicked == force) {
         m_controller->switchBranch(target, GitController::BranchSwitchPolicy::SwitchAnyway);
+    }
+}
+
+void GitTabWidget::onPullDivergedPrompt()
+{
+    m_pushAfterPull = false;
+    QMessageBox box(QMessageBox::Question, tr("Branches have diverged"),
+                    tr("Fast-forward is not possible. How would you like to reconcile?"),
+                    QMessageBox::NoButton, this);
+    auto *merge = box.addButton(tr("Merge"), QMessageBox::AcceptRole);
+    auto *rebase = box.addButton(tr("Rebase"), QMessageBox::AcceptRole);
+    box.addButton(QMessageBox::Cancel);
+    box.setDefaultButton(merge);
+    box.exec();
+    auto *clicked = box.clickedButton();
+    if (clicked == merge) {
+        m_controller->pullMerge();
+    } else if (clicked == rebase) {
+        m_controller->pull(/*rebase=*/true);
+    }
+}
+
+void GitTabWidget::onPushRejectedPrompt()
+{
+    QMessageBox box(QMessageBox::Question, tr("Push rejected"),
+                    tr("The remote has commits you don't have. Pull first to reconcile, then push."),
+                    QMessageBox::NoButton, this);
+    auto *rebase = box.addButton(tr("Pull rebase + push"), QMessageBox::AcceptRole);
+    auto *merge = box.addButton(tr("Pull merge + push"), QMessageBox::AcceptRole);
+    box.addButton(QMessageBox::Cancel);
+    box.setDefaultButton(rebase);
+    box.exec();
+    auto *clicked = box.clickedButton();
+    if (clicked == rebase) {
+        m_pushAfterPull = true;
+        m_controller->pull(/*rebase=*/true);
+    } else if (clicked == merge) {
+        m_pushAfterPull = true;
+        m_controller->pullMerge();
     }
 }
 

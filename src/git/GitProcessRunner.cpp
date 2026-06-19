@@ -34,9 +34,21 @@ GitProcessRunner::GitProcessRunner(QObject *parent) : QObject(parent)
 
 GitProcessRunner::~GitProcessRunner()
 {
-    if (m_proc && m_proc->state() != QProcess::NotRunning) {
-        m_proc->kill();
-        m_proc->waitForFinished(500);
+    if (m_proc) {
+        // Detach BEFORE killing. waitForFinished() below pumps a nested event loop
+        // that would otherwise deliver finished() synchronously into onFinished(),
+        // which invokes m_cb -> GitController::onRunFinished -> runNext() -> run().
+        // During teardown the controller (our QObject parent) has already destroyed
+        // its members (m_current/m_queue hold the QStringList argv), so that
+        // re-entrant call reads freed memory -> use-after-free crash. Mirror
+        // cancelAsync(): disconnect the process and drop the callback so no signal
+        // can re-enter while this runner is being destroyed.
+        m_proc->disconnect(this);
+        m_cb = nullptr;
+        if (m_proc->state() != QProcess::NotRunning) {
+            m_proc->kill();
+            m_proc->waitForFinished(500);
+        }
     }
 }
 

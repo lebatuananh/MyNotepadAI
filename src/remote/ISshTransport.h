@@ -239,6 +239,7 @@ public:
     // not connected or when the transport is a test stub. Used by diagnostic
     // log events to distinguish session-level EAGAIN from SFTP-protocol EAGAIN.
     virtual int lastErrno() const { return 0; }
+    virtual QString lastErrorMessage() const { return {}; }
 };
 
 } // namespace remote

@@ -422,7 +422,9 @@ void SshSessionWorker::advanceConnect()
         if (s == ISshTransport::Step::Again) return;
         if (s == ISshTransport::Step::Error) {
             stopMaintenanceTimer();
-            const QString reason = tr("Authentication failed");
+            const QString reason = m_transport->lastErrorMessage().isEmpty()
+                                       ? tr("Authentication failed")
+                                       : tr("Authentication failed: %1").arg(m_transport->lastErrorMessage());
             emit authFailed(reason);
             enterConnectionLost(reason);
             return;

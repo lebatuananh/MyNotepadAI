@@ -302,7 +302,6 @@ Libssh2Transport::Step Libssh2Transport::authPublicKey(const QString &username,
     const QByteArray u = username.toUtf8();
     const QByteArray priv = keyPath.toUtf8();
     const QByteArray pass = passphrase.toUtf8();
-    // Public-key path left null → libssh2 derives "<priv>.pub".
     const int rc = libssh2_userauth_publickey_fromfile_ex(
         m_session, u.constData(), static_cast<unsigned int>(u.size()),
         nullptr, priv.constData(), pass.isEmpty() ? nullptr : pass.constData());
@@ -818,6 +817,15 @@ int Libssh2Transport::sendKeepalive()
 int Libssh2Transport::lastErrno() const
 {
     return m_session ? libssh2_session_last_errno(m_session) : 0;
+}
+
+QString Libssh2Transport::lastErrorMessage() const
+{
+    if (!m_session) return {};
+    char *msg = nullptr;
+    int len = 0;
+    libssh2_session_last_error(m_session, &msg, &len, 0);
+    return (msg && len > 0) ? QString::fromUtf8(msg, len) : QString();
 }
 
 void Libssh2Transport::disconnect()

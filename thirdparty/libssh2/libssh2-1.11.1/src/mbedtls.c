@@ -704,33 +704,36 @@ gen_publickey_from_rsa(LIBSSH2_SESSION *session,
     uint32_t len;
     unsigned char *key;
     unsigned char *p;
+    unsigned char *ebuf = NULL;
+    unsigned char *nbuf = NULL;
 
     e_bytes = (uint32_t)mbedtls_mpi_size(&rsa->MBEDTLS_PRIVATE(E));
     n_bytes = (uint32_t)mbedtls_mpi_size(&rsa->MBEDTLS_PRIVATE(N));
 
-    /* Key form is "ssh-rsa" + e + n. */
-    len = 4 + 7 + 4 + e_bytes + 4 + n_bytes;
+    /* Worst case: each mpint may need +1 byte for sign padding. */
+    len = 4 + 7 + 4 + e_bytes + 1 + 4 + n_bytes + 1;
 
     key = LIBSSH2_ALLOC(session, len);
-    if(!key) {
+    ebuf = LIBSSH2_ALLOC(session, e_bytes);
+    nbuf = LIBSSH2_ALLOC(session, n_bytes);
+    if(!key || !ebuf || !nbuf) {
+        if(key) LIBSSH2_FREE(session, key);
+        if(ebuf) LIBSSH2_FREE(session, ebuf);
+        if(nbuf) LIBSSH2_FREE(session, nbuf);
         return NULL;
     }
 
-    /* Process key encoding. */
+    mbedtls_mpi_write_binary(&rsa->MBEDTLS_PRIVATE(E), ebuf, e_bytes);
+    mbedtls_mpi_write_binary(&rsa->MBEDTLS_PRIVATE(N), nbuf, n_bytes);
+
     p = key;
 
-    _libssh2_htonu32(p, 7);  /* Key type. */
-    p += 4;
-    memcpy(p, "ssh-rsa", 7);
-    p += 7;
+    _libssh2_store_str(&p, "ssh-rsa", 7);
+    _libssh2_store_bignum2_bytes(&p, ebuf, e_bytes);
+    _libssh2_store_bignum2_bytes(&p, nbuf, n_bytes);
 
-    _libssh2_htonu32(p, e_bytes);
-    p += 4;
-    mbedtls_mpi_write_binary(&rsa->MBEDTLS_PRIVATE(E), p, e_bytes);
-
-    _libssh2_htonu32(p, n_bytes);
-    p += 4;
-    mbedtls_mpi_write_binary(&rsa->MBEDTLS_PRIVATE(N), p, n_bytes);
+    LIBSSH2_FREE(session, ebuf);
+    LIBSSH2_FREE(session, nbuf);
 
     *keylen = (size_t)(p - key);
     return key;
@@ -746,7 +749,7 @@ _libssh2_mbedtls_pub_priv_key(LIBSSH2_SESSION *session,
 {
     unsigned char *key = NULL, *mth = NULL;
     size_t keylen = 0, mthlen = 0;
-    int ret;
+    int ret = 0;
     mbedtls_rsa_context *rsa;
 
     if(mbedtls_pk_get_type(pkey) != MBEDTLS_PK_RSA) {

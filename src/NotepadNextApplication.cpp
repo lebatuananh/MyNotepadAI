@@ -113,6 +113,21 @@ static QStringList sanitizeWorkspacePaths(const QStringList &raw)
     out.reserve(raw.size());
     for (const QString &p : raw) {
         if (p.isEmpty()) continue;
+
+        // SSH workspaces are stored as ssh://<profileId><remoteAbsPath> URIs.
+        // They are already absolute and live on a remote host we cannot probe
+        // while offline, so QDir/QFileInfo normalization is meaningless and
+        // (worse) would treat the URI as a relative local path and drop it —
+        // wiping all remote recents on every restart. Keep the URI verbatim;
+        // only de-dup. A stale URI for a deleted profile is harmless: the
+        // recent-workspace picker renders it safely and opening it just routes
+        // back through openFolderAsWorkspacePath.
+        if (remote::isSshUri(p)) {
+            if (!out.contains(p))
+                out.append(p);
+            continue;
+        }
+
         const QString abs = QDir(p).absolutePath();
         if (abs.isEmpty()) continue;
         if (!QFileInfo(abs).isDir()) continue;
@@ -211,7 +226,7 @@ bool NotepadNextApplication::init()
     {
         PROFILE_SCOPE("NotepadNextApplication::initManagers");
         recentFilesListManager = new RecentFilesListManager(this);
-        recentWorkspacesListManager = new RecentFilesListManager(this);
+        recentWorkspacesListManager = new RecentFilesListManager(this, /*maxFiles=*/100);
         editorManager = new EditorManager(settings, this);
         aiAgentManager_ = new AcpAgentManager(settings, this);
         credentialStore_ = new ai::CredentialStore(this);

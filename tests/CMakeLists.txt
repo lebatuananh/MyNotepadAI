@@ -837,6 +837,8 @@ target_link_libraries(test_quick_file_open_scoring PRIVATE Qt6::Core Qt6::Gui Qt
 target_sources(test_quick_file_open_scoring PRIVATE
     ${CMAKE_SOURCE_DIR}/src/dialogs/QuickFileOpenDialog.cpp
     ${CMAKE_SOURCE_DIR}/src/dialogs/QuickFileOpenDialog.h
+    ${CMAKE_SOURCE_DIR}/src/widgets/FuzzyHighlightDelegate.cpp
+    ${CMAKE_SOURCE_DIR}/src/widgets/FuzzyHighlightDelegate.h
     ${CMAKE_SOURCE_DIR}/src/FileIndexCache.h
 )
 add_test(NAME QuickFileOpenScoring COMMAND test_quick_file_open_scoring)
@@ -850,6 +852,8 @@ target_link_libraries(test_quick_file_open_topk PRIVATE Qt6::Core Qt6::Gui Qt6::
 target_sources(test_quick_file_open_topk PRIVATE
     ${CMAKE_SOURCE_DIR}/src/dialogs/QuickFileOpenDialog.cpp
     ${CMAKE_SOURCE_DIR}/src/dialogs/QuickFileOpenDialog.h
+    ${CMAKE_SOURCE_DIR}/src/widgets/FuzzyHighlightDelegate.cpp
+    ${CMAKE_SOURCE_DIR}/src/widgets/FuzzyHighlightDelegate.h
     ${CMAKE_SOURCE_DIR}/src/FileIndexCache.h
 )
 add_test(NAME QuickFileOpenTopK COMMAND test_quick_file_open_topk)
@@ -862,6 +866,8 @@ target_link_libraries(test_quick_file_open_empty PRIVATE Qt6::Core Qt6::Gui Qt6:
 target_sources(test_quick_file_open_empty PRIVATE
     ${CMAKE_SOURCE_DIR}/src/dialogs/QuickFileOpenDialog.cpp
     ${CMAKE_SOURCE_DIR}/src/dialogs/QuickFileOpenDialog.h
+    ${CMAKE_SOURCE_DIR}/src/widgets/FuzzyHighlightDelegate.cpp
+    ${CMAKE_SOURCE_DIR}/src/widgets/FuzzyHighlightDelegate.h
     ${CMAKE_SOURCE_DIR}/src/FileIndexCache.h
 )
 add_test(NAME QuickFileOpenEmpty COMMAND test_quick_file_open_empty)

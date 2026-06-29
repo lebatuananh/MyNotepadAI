@@ -261,6 +261,9 @@ private:
     void attachAiAgentDock(AiAgentDock *dock, bool raise = true);
     void registerWorkspaceDock(FolderAsWorkspaceDock *dock);
     void openFolderAsWorkspacePath(const QString &dir, bool showGitTab = false);
+    // Opens the fuzzy "Recent Workspace" popup over ALL recents (≤100); wired
+    // to the submenu's "Show more..." row.
+    void openRecentWorkspacePopup();
     void wireWorkspaceGitSignals(FolderAsWorkspaceDock *dock);
     FolderAsWorkspaceDock *activeWorkspaceDock() const;
     QString currentWorkspaceRoot() const;

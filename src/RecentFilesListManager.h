@@ -28,13 +28,17 @@ class RecentFilesListManager : public QObject
     Q_OBJECT
 
 public:
-    explicit RecentFilesListManager(QObject *parent = Q_NULLPTR);
+    // maxFiles caps the list size; older entries past the cap are evicted on
+    // addFile(). Defaults to 10 so existing callers (recent files) are
+    // unchanged; the recent-workspaces list passes a larger cap.
+    explicit RecentFilesListManager(QObject *parent = Q_NULLPTR, int maxFiles = 10);
 
     QString mostRecentFile() const;
     QStringList fileList() const;
     void setFileList(const QStringList &list);
 
     int count() const { return recentFiles.size(); }
+    int maxFiles() const { return m_maxFiles; }
 
 public slots:
     void addFile(const QString &filePath);
@@ -43,6 +47,7 @@ public slots:
 
 private:
     QStringList recentFiles;
+    int m_maxFiles;
 };
 
 #endif // RECENTFILESLISTMANAGER_H

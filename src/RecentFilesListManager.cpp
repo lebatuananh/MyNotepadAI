@@ -19,8 +19,9 @@
 
 #include "RecentFilesListManager.h"
 
-RecentFilesListManager::RecentFilesListManager(QObject *parent) :
-    QObject(parent)
+RecentFilesListManager::RecentFilesListManager(QObject *parent, int maxFiles) :
+    QObject(parent),
+    m_maxFiles(maxFiles > 0 ? maxFiles : 1)
 {
 }
 
@@ -32,7 +33,7 @@ void RecentFilesListManager::addFile(const QString &filePath)
     removeFile(filePath);
 
     // Set a limit on how many can be in the list
-    if (recentFiles.size() >= 10) {
+    while (recentFiles.size() >= m_maxFiles) {
         recentFiles.removeLast();
     }
 
@@ -66,4 +67,10 @@ void RecentFilesListManager::setFileList(const QStringList &list)
 {
     clear();
     recentFiles.append(list);
+
+    // The persisted list is already in MRU order (front = most recent). Keep
+    // that order; only drop the oldest tail entries if a stale list exceeds
+    // the current cap. Never re-sorts, never clamps a within-cap list.
+    while (recentFiles.size() > m_maxFiles)
+        recentFiles.removeLast();
 }

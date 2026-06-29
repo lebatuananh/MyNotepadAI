@@ -18,16 +18,15 @@
 
 #include "QuickFileOpenDialog.h"
 
+#include "widgets/FuzzyHighlightDelegate.h"
+
 #include <QVBoxLayout>
 #include <QDir>
 #include <QHash>
 #include <QSet>
 #include <QKeyEvent>
 #include <QShowEvent>
-#include <QStringView>
 #include <QApplication>
-#include <QPainter>
-#include <QStyledItemDelegate>
 #include <algorithm>
 
 namespace {
@@ -120,86 +119,6 @@ inline bool candidateBetter(const QuickFileOpenCandidate &a,
     if (a.pathLen != b.pathLen) return a.pathLen < b.pathLen;
     return a.index < b.index;
 }
-
-// HighlightDelegate paints matched characters in an accent color. Logic is
-// unchanged from the original implementation — only its model source changed.
-class HighlightDelegate : public QStyledItemDelegate
-{
-public:
-    using QStyledItemDelegate::QStyledItemDelegate;
-
-    void paint(QPainter *painter, const QStyleOptionViewItem &option,
-               const QModelIndex &index) const override
-    {
-        QStyleOptionViewItem opt = option;
-        initStyleOption(&opt, index);
-
-        painter->save();
-
-        if (opt.state & QStyle::State_Selected)
-            painter->fillRect(opt.rect, opt.palette.highlight());
-        else if (opt.state & QStyle::State_MouseOver)
-            painter->fillRect(opt.rect, opt.palette.highlight().color().lighter(160));
-
-        const QString text = index.data(Qt::DisplayRole).toString();
-        const auto positions = index.data(QuickFileOpenDialog::MatchPositionsRole).value<QVector<int>>();
-
-        const QRect textRect = opt.rect.adjusted(4, 0, -4, 0);
-        const QFont font = opt.font;
-        const QFontMetrics fm(font);
-
-        const QColor normalColor = (opt.state & QStyle::State_Selected)
-            ? opt.palette.highlightedText().color()
-            : opt.palette.text().color();
-        const QColor matchColor = QColor(79, 193, 255);
-
-        int posIdx = 0;
-        const int posCount = positions.size();
-        int x = textRect.left();
-        const int y = textRect.top();
-        const int h = textRect.height();
-        int runStart = 0;
-        const int textLen = text.length();
-
-        painter->setFont(font);
-        painter->setClipRect(textRect);
-
-        while (runStart < textLen && x < textRect.right()) {
-            bool isMatch = (posIdx < posCount && positions[posIdx] == runStart);
-
-            int runEnd = runStart + 1;
-            if (isMatch) {
-                ++posIdx;
-                while (runEnd < textLen && posIdx < posCount && positions[posIdx] == runEnd) {
-                    ++posIdx;
-                    ++runEnd;
-                }
-            } else {
-                int nextMatch = (posIdx < posCount) ? positions[posIdx] : textLen;
-                runEnd = nextMatch;
-            }
-
-            const QStringView run = QStringView(text).mid(runStart, runEnd - runStart);
-            const int runWidth = fm.horizontalAdvance(run.toString());
-
-            painter->setPen(isMatch ? matchColor : normalColor);
-            painter->drawText(QRect(x, y, runWidth, h), Qt::AlignVCenter, run.toString());
-
-            x += runWidth;
-            runStart = runEnd;
-        }
-
-        painter->restore();
-    }
-
-    QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override
-    {
-        QStyleOptionViewItem opt = option;
-        initStyleOption(&opt, index);
-        const QFontMetrics fm(opt.font);
-        return QSize(opt.rect.width(), fm.height() + 4);
-    }
-};
 
 } // namespace
 
@@ -404,7 +323,7 @@ QVariant QuickFileOpenModel::data(const QModelIndex &index, int role) const
         return {};
     }
     if (role == QuickFileOpenDialog::MatchPositionsRole) {
-        // HighlightDelegate reads QVector<int>; convert the cached inline
+        // FuzzyHighlightDelegate reads QVector<int>; convert the cached inline
         // positions (computed once, only for survivors) to that type.
         QVector<int> v;
         v.reserve(cand.positions.size());
@@ -441,7 +360,7 @@ QuickFileOpenDialog::QuickFileOpenDialog(const QString &rootPath, QWidget *paren
     m_listView->setUniformItemSizes(true);   // virtualization fast path
     m_model = new QuickFileOpenModel(this);
     m_listView->setModel(m_model);
-    m_listView->setItemDelegate(new HighlightDelegate(m_listView));
+    m_listView->setItemDelegate(new FuzzyHighlightDelegate(m_listView));
     layout->addWidget(m_listView);
 
     m_lineEdit->installEventFilter(this);

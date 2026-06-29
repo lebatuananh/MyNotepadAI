@@ -259,6 +259,8 @@ qt_add_executable(NotepadAI
 	dialogs/MainWindow.ui
 	dialogs/QuickFileOpenDialog.cpp
 	dialogs/QuickFileOpenDialog.h
+	dialogs/RecentWorkspaceOpenDialog.cpp
+	dialogs/RecentWorkspaceOpenDialog.h
 	dialogs/InteractiveRebaseDialog.cpp
 	dialogs/InteractiveRebaseDialog.h
 	dialogs/PreferencesDialog.cpp
@@ -424,6 +426,8 @@ qt_add_executable(NotepadAI
 	widgets/EditorInfoStatusBar.h
 	widgets/EditorMinimap.cpp
 	widgets/EditorMinimap.h
+	widgets/FuzzyHighlightDelegate.cpp
+	widgets/FuzzyHighlightDelegate.h
 	widgets/GoalConfigWidget.cpp
 	widgets/GoalConfigWidget.h
 	widgets/MinimapMath.h

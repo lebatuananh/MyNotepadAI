@@ -30,6 +30,7 @@
 #include <memory>
 
 #include "FileIndexCache.h"
+#include "widgets/FuzzyHighlightDelegate.h"
 
 class QuickFileOpenModel;
 
@@ -62,7 +63,9 @@ public:
     // Workspace-relative most-recently-used files, for empty-query ordering.
     void setMruFiles(const QStringList &mru);
 
-    static constexpr int MatchPositionsRole = Qt::UserRole + 1;
+    // Alias to the shared delegate's role so existing callers/model code keep
+    // using QuickFileOpenDialog::MatchPositionsRole unchanged.
+    static constexpr int MatchPositionsRole = FuzzyHighlightDelegate::MatchPositionsRole;
     static constexpr int kMaxResults = 200;
 
     // --- Pure, static search core (unit-testable without a live dialog/git) ---

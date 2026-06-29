@@ -145,6 +145,7 @@
 
 #include "QuickFindWidget.h"
 #include "QuickFileOpenDialog.h"
+#include "RecentWorkspaceOpenDialog.h"
 #include "WorkspaceFileEnumerator.h"
 
 #include "EditorPrintPreviewRenderer.h"
@@ -313,6 +314,66 @@ QIcon makeTintedIcon(const QString &svgPath, const QColor &color)
     return dst;
 }
 
+// Build recent-workspace picker entries from the raw recent paths. Single
+// source of truth for the remote-vs-local rendering (display string, SSH
+// connection status, leading icon) so the inline 10-row submenu and the
+// "Show more..." fuzzy popup never diverge. Index-aligned, MRU order
+// preserved (paths front = newest). Translation context is "MainWindow" to
+// match the original inline tr() strings.
+QVector<RecentWorkspaceOpenDialog::Entry> buildRecentWorkspaceEntries(
+    const QStringList &paths,
+    remote::SshProfileRegistry *profiles,
+    remote::ExecutionContextRegistry *contexts,
+    const QIcon &sshIcon)
+{
+    QVector<RecentWorkspaceOpenDialog::Entry> entries;
+    entries.reserve(paths.size());
+
+    for (const QString &path : paths) {
+        RecentWorkspaceOpenDialog::Entry e;
+        e.openUri = path;
+
+        if (remote::isSshUri(path)) {
+            const remote::SshUri uri = remote::parseSshUri(path);
+            QString display = path;
+            if (uri.valid && profiles && profiles->contains(uri.profileId)) {
+                const remote::SshProfile p = profiles->profile(uri.profileId);
+                const QString userHost = p.username.isEmpty()
+                    ? p.host
+                    : (p.username + QLatin1Char('@') + p.host);
+                display = userHost + QLatin1Char(':') + uri.remotePath;
+            }
+
+            QString status = QCoreApplication::translate("MainWindow", "disconnected");
+            if (contexts && uri.valid) {
+                if (auto *ctx = contexts->remoteContext(uri.profileId)) {
+                    switch (ctx->state()) {
+                    case remote::ExecutionContext::State::Connected:
+                        status = QCoreApplication::translate("MainWindow", "connected"); break;
+                    case remote::ExecutionContext::State::Connecting:
+                        status = QCoreApplication::translate("MainWindow", "connecting"); break;
+                    case remote::ExecutionContext::State::Reconnecting:
+                        status = QCoreApplication::translate("MainWindow", "reconnecting"); break;
+                    case remote::ExecutionContext::State::Failed:
+                    case remote::ExecutionContext::State::Disconnected:
+                        status = QCoreApplication::translate("MainWindow", "disconnected"); break;
+                    }
+                }
+            }
+
+            e.matchText = display;
+            e.statusText = status;
+            e.icon = sshIcon;
+        } else {
+            e.matchText = QDir::toNativeSeparators(path);
+            // local: no status badge; leave icon null for a clean row.
+        }
+
+        entries.append(e);
+    }
+    return entries;
+}
+
 } // namespace
 
 
@@ -428,100 +489,80 @@ MainWindow::MainWindow(NotepadNextApplication *app) :
     connect(ui->actionOpenFolderasWorkspace, &QAction::triggered, this, &MainWindow::openFolderAsWorkspaceDialog);
     connect(ui->actionOpenFolderAsWorkspaceNew, &QAction::triggered, this, &MainWindow::openFolderAsWorkspaceDialog);
 
-    connect(ui->menuFile, &QMenu::aboutToShow, this, [=]() {
+    connect(ui->menuFile, &QMenu::aboutToShow, this, [this, app]() {
         RecentFilesListManager *recents = app->getRecentWorkspacesListManager();
         const bool hasRecents = recents->count() > 0;
 
+        // Toggle: when empty show the plain top-level action; when there are
+        // recents show the submenu (which carries New/SSH + the recent rows).
         ui->actionOpenFolderasWorkspace->setVisible(!hasRecents);
         ui->menuOpenFolderAsWorkspace->menuAction()->setVisible(hasRecents);
 
         if (!hasRecents) return;
 
         // Static head of the submenu = "Open New Folder..." + "Open Remote
-        // Folder via SSH..." + separator (3 actions).
-        // Strip any previously-built recent entries before rebuilding.
+        // Folder via SSH..." + separator (3 actions). Strip any previously-built
+        // recent rows / "Show more..." before rebuilding.
         while (ui->menuOpenFolderAsWorkspace->actions().size() > 3) {
             delete ui->menuOpenFolderAsWorkspace->actions().takeLast();
         }
 
-        // Partition recents into remote and local for visual grouping.
-        QStringList remoteRecents, localRecents;
-        for (const QString &path : recents->fileList()) {
-            if (remote::isSshUri(path))
-                remoteRecents.append(path);
-            else
-                localRecents.append(path);
-        }
+        const QStringList allPaths = recents->fileList();
+        const QStringList shown = allPaths.mid(0, 10);   // inline fast path: first 10 (MRU)
 
+        const QColor iconColor = palette().color(QPalette::ButtonText);
+        const QIcon sshIcon = makeTintedIcon(QStringLiteral(":/icons/ssh-badge.svg"), iconColor);
+        remote::SshProfileRegistry *profiles = app ? app->getSshProfileRegistry() : nullptr;
+        remote::ExecutionContextRegistry *contexts = app ? app->getExecutionContextRegistry() : nullptr;
+
+        // Build the (≤10) inline entries through the shared helper so the
+        // remote/local rendering matches the "Show more..." popup exactly.
+        const QVector<RecentWorkspaceOpenDialog::Entry> entries =
+            buildRecentWorkspaceEntries(shown, profiles, contexts, sshIcon);
+
+        // Partition into Remote / Local sections, preserving MRU order within
+        // each. Number prefixes &1..&9 then &0 for the tenth.
         int i = 0;
+        auto addRow = [&](const RecentWorkspaceOpenDialog::Entry &e, bool remote) {
+            ++i;
+            const int digit = (i < 10) ? i : 0;   // 1..9 then 0
+            const QString prefix = QStringLiteral("&%1: ").arg(digit);
+            const QString label = (remote && !e.statusText.isEmpty())
+                ? QStringLiteral("%1%2  (%3)").arg(prefix, e.matchText, e.statusText)
+                : QStringLiteral("%1%2").arg(prefix, e.matchText);
+            QAction *action = new QAction(label, ui->menuOpenFolderAsWorkspace);
+            if (!e.icon.isNull()) action->setIcon(e.icon);
+            const QString uri = e.openUri;
+            connect(action, &QAction::triggered, this, [this, uri]() {
+                openFolderAsWorkspacePath(uri);
+            });
+            ui->menuOpenFolderAsWorkspace->addAction(action);
+        };
 
-        if (!remoteRecents.isEmpty()) {
+        bool anyRemote = false, anyLocal = false;
+        for (const RecentWorkspaceOpenDialog::Entry &e : entries)
+            (remote::isSshUri(e.openUri) ? anyRemote : anyLocal) = true;
+
+        if (anyRemote) {
             ui->menuOpenFolderAsWorkspace->addSection(tr("Recent Remote"));
-            for (const QString &path : remoteRecents) {
-                ++i;
-                const QString prefix = QString("%1%2: ").arg(i < 10 ? "&" : "").arg(i);
-
-                const remote::SshUri uri = remote::parseSshUri(path);
-                QString display = path;
-                if (uri.valid) {
-                    remote::SshProfileRegistry *profiles =
-                        app ? app->getSshProfileRegistry() : nullptr;
-                    if (profiles && profiles->contains(uri.profileId)) {
-                        const remote::SshProfile p = profiles->profile(uri.profileId);
-                        const QString userHost = p.username.isEmpty()
-                            ? p.host
-                            : (p.username + QLatin1Char('@') + p.host);
-                        display = userHost + QLatin1Char(':') + uri.remotePath;
-                    }
-                }
-
-                QString status = tr("disconnected");
-                remote::ExecutionContextRegistry *contexts =
-                    app ? app->getExecutionContextRegistry() : nullptr;
-                if (contexts && uri.valid) {
-                    if (auto *ctx = contexts->remoteContext(uri.profileId)) {
-                        switch (ctx->state()) {
-                        case remote::ExecutionContext::State::Connected:
-                            status = tr("connected"); break;
-                        case remote::ExecutionContext::State::Connecting:
-                            status = tr("connecting"); break;
-                        case remote::ExecutionContext::State::Reconnecting:
-                            status = tr("reconnecting"); break;
-                        case remote::ExecutionContext::State::Failed:
-                        case remote::ExecutionContext::State::Disconnected:
-                            status = tr("disconnected"); break;
-                        }
-                    }
-                }
-
-                QAction *action = new QAction(
-                    QString("%1%2  (%3)").arg(prefix, display, status),
-                    ui->menuOpenFolderAsWorkspace);
-                action->setIcon(makeTintedIcon(QStringLiteral(":/icons/ssh-badge.svg"),
-                                               palette().color(QPalette::ButtonText)));
-                action->setData(path);
-                connect(action, &QAction::triggered, this, [this, path]() {
-                    openFolderAsWorkspacePath(path);
-                });
-                ui->menuOpenFolderAsWorkspace->addAction(action);
-            }
+            for (const RecentWorkspaceOpenDialog::Entry &e : entries)
+                if (remote::isSshUri(e.openUri)) addRow(e, /*remote=*/true);
+        }
+        if (anyLocal) {
+            ui->menuOpenFolderAsWorkspace->addSection(tr("Recent Local"));
+            for (const RecentWorkspaceOpenDialog::Entry &e : entries)
+                if (!remote::isSshUri(e.openUri)) addRow(e, /*remote=*/false);
         }
 
-        if (!localRecents.isEmpty()) {
-            ui->menuOpenFolderAsWorkspace->addSection(tr("Recent Local"));
-            for (const QString &path : localRecents) {
-                ++i;
-                const QString prefix = QString("%1%2: ").arg(i < 10 ? "&" : "").arg(i);
-                const QString native = QDir::toNativeSeparators(path);
-                QAction *action = new QAction(
-                    QString("%1%2").arg(prefix, native),
-                    ui->menuOpenFolderAsWorkspace);
-                action->setData(path);
-                connect(action, &QAction::triggered, this, [this, path]() {
-                    openFolderAsWorkspacePath(path);
-                });
-                ui->menuOpenFolderAsWorkspace->addAction(action);
-            }
+        // "Show more..." opens the fuzzy popup over ALL recents (≤100). Only
+        // shown when there is more than the inline 10 to reveal.
+        if (allPaths.size() > 10) {
+            ui->menuOpenFolderAsWorkspace->addSeparator();
+            QAction *more = new QAction(tr("Show more..."), ui->menuOpenFolderAsWorkspace);
+            connect(more, &QAction::triggered, this, [this]() {
+                openRecentWorkspacePopup();
+            });
+            ui->menuOpenFolderAsWorkspace->addAction(more);
         }
     });
 
@@ -2504,6 +2545,35 @@ void MainWindow::openFolderAsWorkspaceDialog()
 {
     const QString dir = QFileDialog::getExistingDirectory(this, tr("Open Folder as Workspace"), defaultDirectoryManager->getDefaultDirectory(), QFileDialog::ShowDirsOnly);
     openFolderAsWorkspacePath(dir);
+}
+
+void MainWindow::openRecentWorkspacePopup()
+{
+    RecentFilesListManager *recents = app->getRecentWorkspacesListManager();
+    const QStringList paths = recents->fileList();
+    if (paths.isEmpty()) return;
+
+    // Full recent list (≤100) through the shared entry builder so the popup's
+    // remote/local rendering matches the inline submenu rows.
+    const QColor iconColor = palette().color(QPalette::ButtonText);
+    const QIcon sshIcon = makeTintedIcon(QStringLiteral(":/icons/ssh-badge.svg"), iconColor);
+    QVector<RecentWorkspaceOpenDialog::Entry> entries = buildRecentWorkspaceEntries(
+        paths,
+        app ? app->getSshProfileRegistry() : nullptr,
+        app ? app->getExecutionContextRegistry() : nullptr,
+        sshIcon);
+
+    auto *dlg = new RecentWorkspaceOpenDialog(std::move(entries), this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->move(mapToGlobal(QPoint((width() - dlg->minimumWidth()) / 2, height() / 5)));
+    connect(dlg, &QDialog::finished, this, [this, dlg](int result) {
+        if (result == QDialog::Accepted) {
+            const QString uri = dlg->selectedUri();
+            if (!uri.isEmpty())
+                openFolderAsWorkspacePath(uri);
+        }
+    });
+    dlg->show();
 }
 
 void MainWindow::setFolderAsWorkspacePath(const QString &dir)

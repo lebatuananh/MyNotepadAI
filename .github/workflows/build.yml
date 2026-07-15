@@ -123,12 +123,16 @@ jobs:
         run: cmake --build build --parallel
 
       - name: Upload Sentry Debug Symbols
-        if: matrix.qt_version == '6.8' && secrets.SENTRY_AUTH_TOKEN != ''
+        if: matrix.qt_version == '6.8'
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
         run: |
+          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
+            echo "Sentry secrets not configured, skipping upload"
+            exit 0
+          fi
           npm install -g @sentry/cli
           sentry-cli debug-files upload --include-sources build/
 

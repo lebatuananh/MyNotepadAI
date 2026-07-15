@@ -123,7 +123,7 @@ jobs:
         run: cmake --build build --parallel
 
       - name: Upload Sentry Debug Symbols
-        if: matrix.qt_version == '6.8'
+        if: matrix.qt_version == '6.8' && secrets.SENTRY_AUTH_TOKEN != ''
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}

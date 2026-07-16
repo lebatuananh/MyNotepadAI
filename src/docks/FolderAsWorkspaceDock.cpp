@@ -114,6 +114,7 @@ FolderAsWorkspaceDock::FolderAsWorkspaceDock(QWidget *parent) :
     ui->setupUi(this);
 
     fsModel = model;
+    model->setFilter(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::AllDirs | QDir::Hidden);
     proxy->setSourceModel(model);
     ui->treeView->setModel(proxy);
     ui->treeView->header()->hideSection(1);
@@ -186,6 +187,7 @@ FolderAsWorkspaceDock::FolderAsWorkspaceDock(const QString &initialPath, QWidget
     ui->setupUi(this);
 
     fsModel = model;
+    model->setFilter(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::AllDirs | QDir::Hidden);
     proxy->setSourceModel(model);
     ui->treeView->setModel(proxy);
     ui->treeView->header()->hideSection(1);

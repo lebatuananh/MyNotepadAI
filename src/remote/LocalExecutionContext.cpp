@@ -85,7 +85,7 @@ public:
 
     QStringList readdir(const QString &path) override
     {
-        return QDir(path).entryList(QDir::NoDotAndDotDot | QDir::AllEntries);
+        return QDir(path).entryList(QDir::NoDotAndDotDot | QDir::AllEntries | QDir::Hidden);
     }
 
 private:
